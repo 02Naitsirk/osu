@@ -89,7 +89,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
             if (countMiss > 0)
-                aimValue *= Math.Pow(0.95, countMiss);
+                aimValue *= 0.97 * Math.Pow(1 - Math.Pow((double)countMiss / totalHits, 0.775), countMiss);
 
             // Combo scaling
             if (Attributes.MaxCombo > 0)
@@ -163,6 +163,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             speedValue *= erfApprox(13 / (Math.Sqrt(2) * deviation));
 
             // speedValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
+
             // Scale the speed value with # of 50s to punish doubletapping.
             // speedValue *= Math.Pow(0.98, countMeh < totalHits / 500.0 ? 0 : countMeh - totalHits / 500.0);
 
@@ -175,6 +176,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 return 0;
 
             double deviation = getDeviation();
+
+            if (double.IsPositiveInfinity(deviation))
+                return 0;
+
             double accuracyValue = 1 / deviation / deviation;
 
             if (mods.Any(m => m is OsuModHidden))
@@ -182,17 +187,34 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (mods.Any(m => m is OsuModFlashlight))
                 accuracyValue *= 1.02;
 
-            return 3100 * accuracyValue;
+            return 4200 * accuracyValue;
         }
 
         private double getDeviation()
         {
-            double modifiedAcc = (double)((countGreat - (totalHits - Attributes.HitCircleCount)) * 3 + countOk * 2 + countMeh) / ((Attributes.HitCircleCount + 2) * 3);
-            double greatHitWindow = 79.5 - 6 * Attributes.OverallDifficulty;
-
             static double erfInvApprox(double x) => Math.Sqrt(Math.PI) / 4 * Math.Log((1 + x) / (1 - x));
 
-            double deviation = greatHitWindow / (Math.Sqrt(2) * erfInvApprox(modifiedAcc));
+            // We will get the lower bound of the 95% confidence interval of the player's standard deviation
+            const double z = 1.96;
+
+            int n = Attributes.HitCircleCount - countMiss;
+            int countGreatCircles = countGreat - (totalHits - Attributes.HitCircleCount);
+
+            // Add countMeh to denominator to punish 50s. This makes 50s count as two non-300s
+            double pObserved = (double)countGreatCircles / (n + countMeh);
+
+            if (pObserved == 0)
+                return double.PositiveInfinity;
+
+            double a = 1 + z * z / n;
+            double b = -(2 * pObserved + z * z / n);
+            double c = pObserved * pObserved;
+
+            double pMin = (-b - Math.Sqrt(b * b - 4 * a * c)) / (2 * a);
+            double z0 = Math.Sqrt(2) * erfInvApprox(pMin);
+
+            double deviation = (80 - 6 * Attributes.OverallDifficulty) / z0;
+
             return deviation;
         }
 
