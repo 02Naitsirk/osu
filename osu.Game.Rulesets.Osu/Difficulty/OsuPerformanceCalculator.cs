@@ -89,7 +89,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
             if (countMiss > 0)
-                aimValue *= 0.97 * Math.Pow(1 - Math.Pow((double)countMiss / totalHits, 0.775), countMiss);
+                aimValue *= Math.Pow(0.95, countMiss);
 
             // Combo scaling
             if (Attributes.MaxCombo > 0)
@@ -140,10 +140,6 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
             speedValue *= lengthBonus;
 
-            // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
-            if (countMiss > 0)
-                speedValue *= 0.97 * Math.Pow(1 - Math.Pow((double)countMiss / totalHits, 0.775), Math.Pow(countMiss, .875));
-
             // Combo scaling
             if (Attributes.MaxCombo > 0)
                 speedValue *= Math.Min(Math.Pow(scoreMaxCombo, 0.8) / Math.Pow(Attributes.MaxCombo, 0.8), 1.0);
@@ -160,7 +156,13 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 speedValue *= 1.0 + 0.04 * (12.0 - Attributes.ApproachRate);
 
             // Scale the speed value with accuracy and OD
-            speedValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
+
+            static double erfApprox(double x) => (Math.Exp(4 * x / Math.Sqrt(Math.PI)) - 1) / (Math.Exp(4 * x / Math.Sqrt(Math.PI)) + 1);
+            double deviation = getDeviation();
+
+            speedValue *= erfApprox(13 / (Math.Sqrt(2) * deviation));
+
+            // speedValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
             // Scale the speed value with # of 50s to punish doubletapping.
             // speedValue *= Math.Pow(0.98, countMeh < totalHits / 500.0 ? 0 : countMeh - totalHits / 500.0);
 
@@ -169,36 +171,29 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
         private double computeAccuracyValue()
         {
-            int circleCount = Attributes.HitCircleCount;
-
-            if (circleCount == 0)
+            if (Attributes.HitCircleCount == 0)
                 return 0;
 
-            int adjustedCountGreat = Math.Max(0, countGreat - (totalHits - circleCount));
-
-            if (adjustedCountGreat + countOk + countMeh == 0)
-                return 0;
-
-            double greatHitWindow = 79.5 - 6 * Attributes.OverallDifficulty;
-            double okHitWindow = 139.5 - 8 * Attributes.OverallDifficulty;
-            double mehHitWindow = 199.5 - 10 * Attributes.OverallDifficulty;
-
-            double variance = (adjustedCountGreat * greatHitWindow * greatHitWindow + countOk * okHitWindow * okHitWindow + countMeh * mehHitWindow * mehHitWindow)
-                              / (adjustedCountGreat + countOk + countMeh);
-
-            double deviation = Math.Sqrt(variance);
-
-            double estimatedUnstableRate = 10 * deviation / (Math.Sqrt(Math.PI / 8)
-                                                             * Math.Log((1 + Math.Exp(-1.0 / (adjustedCountGreat + countOk + countMeh))) / (1 - Math.Exp(-1.0 / (adjustedCountGreat + countOk + countMeh)))));
-
-            double accuracyValue = 1 / estimatedUnstableRate / estimatedUnstableRate;
+            double deviation = getDeviation();
+            double accuracyValue = 1 / deviation / deviation;
 
             if (mods.Any(m => m is OsuModHidden))
                 accuracyValue *= 1.08;
             if (mods.Any(m => m is OsuModFlashlight))
                 accuracyValue *= 1.02;
 
-            return 2160.8437 * 100 * accuracyValue;
+            return 3100 * accuracyValue;
+        }
+
+        private double getDeviation()
+        {
+            double modifiedAcc = (double)((countGreat - (totalHits - Attributes.HitCircleCount)) * 3 + countOk * 2 + countMeh) / ((Attributes.HitCircleCount + 2) * 3);
+            double greatHitWindow = 79.5 - 6 * Attributes.OverallDifficulty;
+
+            static double erfInvApprox(double x) => Math.Sqrt(Math.PI) / 4 * Math.Log((1 + x) / (1 - x));
+
+            double deviation = greatHitWindow / (Math.Sqrt(2) * erfInvApprox(modifiedAcc));
+            return deviation;
         }
 
         private int totalHits => countGreat + countOk + countMeh + countMiss;
