@@ -140,6 +140,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
             speedValue *= lengthBonus;
 
+            if (countMiss > 0)
+                speedValue *= 0.97 * Math.Pow(1 - Math.Pow((double)countMiss / totalHits, 0.775), Math.Pow(countMiss, .875));
+
             // Combo scaling
             if (Attributes.MaxCombo > 0)
                 speedValue *= Math.Min(Math.Pow(scoreMaxCombo, 0.8) / Math.Pow(Attributes.MaxCombo, 0.8), 1.0);
@@ -157,12 +160,12 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             // Scale the speed value with accuracy and OD
 
-            static double erfApprox(double x) => (Math.Exp(4 * x / Math.Sqrt(Math.PI)) - 1) / (Math.Exp(4 * x / Math.Sqrt(Math.PI)) + 1);
-            double deviation = getDeviation();
+            //static double erfApprox(double x) => (Math.Exp(4 * x / Math.Sqrt(Math.PI)) - 1) / (Math.Exp(4 * x / Math.Sqrt(Math.PI)) + 1);
+            //double deviation = getDeviation();
 
-            speedValue *= erfApprox(13 / (Math.Sqrt(2) * deviation));
+            //speedValue *= erfApprox(13 / (Math.Sqrt(2) * deviation));
 
-            // speedValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
+            speedValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
 
             // Scale the speed value with # of 50s to punish doubletapping.
             // speedValue *= Math.Pow(0.98, countMeh < totalHits / 500.0 ? 0 : countMeh - totalHits / 500.0);
@@ -187,14 +190,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (mods.Any(m => m is OsuModFlashlight))
                 accuracyValue *= 1.02;
 
-            return 4200 * accuracyValue;
+            return 4650 * accuracyValue;
         }
 
         private double getDeviation()
         {
             static double erfInvApprox(double x) => Math.Sqrt(Math.PI) / 4 * Math.Log((1 + x) / (1 - x));
 
-            // We will get the lower bound of the 95% confidence interval of the player's standard deviation
+            // We want the lower bound of the 95% confidence interval of the player's standard deviation
             const double z = 1.96;
 
             int n = Attributes.HitCircleCount - countMiss;
@@ -213,7 +216,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double pMin = (-b - Math.Sqrt(b * b - 4 * a * c)) / (2 * a);
             double z0 = Math.Sqrt(2) * erfInvApprox(pMin);
 
-            double deviation = (80 - 6 * Attributes.OverallDifficulty) / z0;
+            double deviation = (79.5 - 6 * Attributes.OverallDifficulty) / z0;
 
             return deviation;
         }
