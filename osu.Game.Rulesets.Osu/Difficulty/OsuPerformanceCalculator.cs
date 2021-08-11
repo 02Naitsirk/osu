@@ -160,10 +160,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             // Scale the speed value with accuracy and OD
 
-            //static double erfApprox(double x) => (Math.Exp(4 * x / Math.Sqrt(Math.PI)) - 1) / (Math.Exp(4 * x / Math.Sqrt(Math.PI)) + 1);
-            //double deviation = getDeviation();
-
-            //speedValue *= erfApprox(13 / (Math.Sqrt(2) * deviation));
+            // static double erfApprox(double x) => (Math.Exp(4 * x / Math.Sqrt(Math.PI)) - 1) / (Math.Exp(4 * x / Math.Sqrt(Math.PI)) + 1);
+            // double deviation = getDeviation();
+            //
+            // speedValue *= erfApprox(25.5 / (Math.Sqrt(2) * deviation));
 
             speedValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
 
@@ -190,30 +190,32 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (mods.Any(m => m is OsuModFlashlight))
                 accuracyValue *= 1.02;
 
-            return 4650 * accuracyValue;
+            return 5500 * accuracyValue;
         }
 
         private double getDeviation()
         {
             static double erfInvApprox(double x) => Math.Sqrt(Math.PI) / 4 * Math.Log((1 + x) / (1 - x));
 
-            // We want the lower bound of the 95% confidence interval of the player's standard deviation
-            const double z = 1.96;
+            // z-score for 99% confidence interval
+            const double z = 2.5758293;
 
             int n = Attributes.HitCircleCount - countMiss;
             int countGreatCircles = countGreat - (totalHits - Attributes.HitCircleCount);
 
-            // Add countMeh to denominator to punish 50s. This makes 50s count as two non-300s
+            // Add countMeh to denominator to punish 50s. This essentially makes 50s count as two non-300s
             double pObserved = (double)countGreatCircles / (n + countMeh);
 
             if (pObserved == 0)
                 return double.PositiveInfinity;
 
+            // Create a 99% confidence interval and choose the lower bound as the player's standard deviation
+
             double a = 1 + z * z / n;
             double b = -(2 * pObserved + z * z / n);
             double c = pObserved * pObserved;
-
             double pMin = (-b - Math.Sqrt(b * b - 4 * a * c)) / (2 * a);
+
             double z0 = Math.Sqrt(2) * erfInvApprox(pMin);
 
             double deviation = (79.5 - 6 * Attributes.OverallDifficulty) / z0;
