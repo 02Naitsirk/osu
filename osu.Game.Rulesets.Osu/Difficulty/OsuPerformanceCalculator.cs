@@ -140,6 +140,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
             speedValue *= lengthBonus;
 
+            // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
             if (countMiss > 0)
                 speedValue *= 0.97 * Math.Pow(1 - Math.Pow((double)countMiss / totalHits, 0.775), Math.Pow(countMiss, .875));
 
@@ -159,16 +160,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 speedValue *= 1.0 + 0.04 * (12.0 - Attributes.ApproachRate);
 
             // Scale the speed value with accuracy and OD
-
-            // static double erfApprox(double x) => (Math.Exp(4 * x / Math.Sqrt(Math.PI)) - 1) / (Math.Exp(4 * x / Math.Sqrt(Math.PI)) + 1);
-            // double deviation = getDeviation();
-            //
-            // speedValue *= erfApprox(25.5 / (Math.Sqrt(2) * deviation));
-
             speedValue *= (0.95 + Math.Pow(Attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(Attributes.OverallDifficulty, 8)) / 2);
-
             // Scale the speed value with # of 50s to punish doubletapping.
-            // speedValue *= Math.Pow(0.98, countMeh < totalHits / 500.0 ? 0 : countMeh - totalHits / 500.0);
+            speedValue *= Math.Pow(0.98, countMeh < totalHits / 500.0 ? 0 : countMeh - totalHits / 500.0);
 
             return speedValue;
         }
@@ -180,10 +174,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             double deviation = getDeviation();
 
-            if (double.IsPositiveInfinity(deviation))
+            if (double.IsPositiveInfinity(deviation) || double.IsNaN(deviation))
                 return 0;
 
-            double accuracyValue = 1 / deviation / deviation;
+            double accuracyValue = Math.Pow(deviation, -2);
 
             if (mods.Any(m => m is OsuModHidden))
                 accuracyValue *= 1.08;
@@ -200,14 +194,16 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             // z-score for 99% confidence interval
             const double z = 2.5758293;
 
-            int n = Attributes.HitCircleCount - countMiss;
-            int countGreatCircles = countGreat - (totalHits - Attributes.HitCircleCount);
+            int n = Attributes.HitCircleCount;
+            int countGreatCircles = countGreat - (totalHits - n);
+
+            // Deviation on circles is indeterminate if there aren't any circles
+            // We'll also return NaN if there are no 300s regardless of circle count
+            if (n == 0 || countGreatCircles <= 0)
+                return double.NaN;
 
             // Add countMeh to denominator to punish 50s. This essentially makes 50s count as two non-300s
             double pObserved = (double)countGreatCircles / (n + countMeh);
-
-            if (pObserved == 0)
-                return double.PositiveInfinity;
 
             // Create a 99% confidence interval and choose the lower bound as the player's standard deviation
 
@@ -215,9 +211,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double b = -(2 * pObserved + z * z / n);
             double c = pObserved * pObserved;
             double pMin = (-b - Math.Sqrt(b * b - 4 * a * c)) / (2 * a);
-
             double z0 = Math.Sqrt(2) * erfInvApprox(pMin);
-
             double deviation = (79.5 - 6 * Attributes.OverallDifficulty) / z0;
 
             return deviation;
