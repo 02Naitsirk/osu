@@ -8,6 +8,8 @@ using osu.Game.Rulesets.Difficulty;
 using osu.Game.Rulesets.Osu.Mods;
 using osu.Game.Rulesets.Scoring;
 using osu.Game.Scoring;
+using MathNet.Numerics;
+using MathNet.Numerics.RootFinding;
 
 namespace osu.Game.Rulesets.Osu.Difficulty
 {
@@ -57,7 +59,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             double aimValue = computeAimValue(score, osuAttributes);
             double speedValue = computeSpeedValue(score, osuAttributes);
-            double accuracyValue = computeAccuracyValue(score, osuAttributes);
+            double accuracyValue = computeOptimalAccuracyValue(score, osuAttributes);
             double flashlightValue = computeFlashlightValue(score, osuAttributes);
             double totalValue =
                 Math.Pow(
@@ -123,9 +125,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 aimValue *= sliderNerfFactor;
             }
 
-            aimValue *= accuracy;
-            // It is important to consider accuracy difficulty when scaling with accuracy.
-            aimValue *= 0.98 + Math.Pow(attributes.OverallDifficulty, 2) / 2500;
+            aimValue *= computeOptimalAimScaling(attributes);
 
             return aimValue;
         }
@@ -162,7 +162,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             }
 
             // Scale the speed value with accuracy and OD.
-            speedValue *= (0.95 + Math.Pow(attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(attributes.OverallDifficulty, 8)) / 2);
+            speedValue *= computeOptimalSpeedScaling(attributes);
 
             // Scale the speed value with # of 50s to punish doubletapping.
             speedValue *= Math.Pow(0.98, countMeh < totalHits / 500.0 ? 0 : countMeh - totalHits / 500.0);
@@ -205,6 +205,103 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 accuracyValue *= 1.02;
 
             return accuracyValue;
+        }
+
+        private double computeOptimalAccuracyValue(ScoreInfo score, OsuDifficultyAttributes attributes)
+        {
+            if (score.Mods.Any(h => h is OsuModRelax))
+                return 0.0;
+
+            double accuracyOnHitCircles = ((countGreat - (totalHits - attributes.HitCircleCount)) * 6 + countOk * 2 + countMeh) / (double)((attributes.HitCircleCount + 1) * 6);
+
+            double getAccuracy(double d, double od)
+            {
+                double acc = 2 / 3.0 * SpecialFunctions.Erf((80 - 6 * od) / (d * Math.Sqrt(2)))
+                             + 1 / 6.0 * SpecialFunctions.Erf((140 - 8 * od) / (d * Math.Sqrt(2)))
+                             + 1 / 6.0 * SpecialFunctions.Erf((200 - 10 * od) / (d * Math.Sqrt(2)));
+                return acc;
+            }
+
+            double calculateDeviationOnCircles()
+            {
+                double unstableRateToAccuracy(double deviation) => getAccuracy(deviation, attributes.OverallDifficulty);
+                double urMinusAccuracy(double deviation) => unstableRateToAccuracy(deviation) - accuracyOnHitCircles;
+                return Bisection.FindRoot(urMinusAccuracy, 1, 100);
+            }
+
+            double deviation = calculateDeviationOnCircles();
+
+            double f(double d, double od) => od * Math.Log(1.52163) + 24 * Math.Log(getAccuracy(d, od));
+            double negativeMAtDeviation(double overallDifficulty) => -f(deviation, overallDifficulty);
+
+            double optimalOd = FindMinimum.OfScalarFunctionConstrained(negativeMAtDeviation, 0, 80 / 6.0);
+            double accuracyAtOptimalOd = getAccuracy(deviation, optimalOd);
+
+            double optimalAccuracyValue = Math.Pow(1.52163, optimalOd) * Math.Pow(accuracyAtOptimalOd, 24) * 2.83;
+            optimalAccuracyValue *= Math.Min(1.15, Math.Pow(attributes.HitCircleCount / 1000.0, 0.3));
+
+            // Increasing the accuracy value by object count for Blinds isn't ideal, so the minimum buff is given.
+            if (score.Mods.Any(m => m is OsuModBlinds))
+                optimalAccuracyValue *= 1.14;
+            else if (score.Mods.Any(m => m is OsuModHidden))
+                optimalAccuracyValue *= 1.08;
+
+            if (score.Mods.Any(m => m is OsuModFlashlight))
+                optimalAccuracyValue *= 1.02;
+
+            return Math.Max(optimalAccuracyValue, computeAccuracyValue(score, attributes));
+        }
+
+        private double computeOptimalAimScaling(OsuDifficultyAttributes attributes)
+        {
+            double getAccuracy(double d, double od)
+            {
+                double acc = 2 / 3.0 * SpecialFunctions.Erf((80 - 6 * od) / (d * Math.Sqrt(2)))
+                             + 1 / 6.0 * SpecialFunctions.Erf((140 - 8 * od) / (d * Math.Sqrt(2)))
+                             + 1 / 6.0 * SpecialFunctions.Erf((200 - 10 * od) / (d * Math.Sqrt(2)));
+                return acc;
+            }
+
+            double calculateDeviation()
+            {
+                double unstableRateToAccuracy(double deviation) => getAccuracy(deviation, attributes.OverallDifficulty);
+                double urMinusAccuracy(double deviation) => unstableRateToAccuracy(deviation) - (6 * countGreat + 2 * countOk + countMeh) / (6 * (totalHits + 1.0));
+                return Bisection.FindRoot(urMinusAccuracy, 1, 100);
+            }
+
+            double deviation = calculateDeviation();
+
+            double aimScaling(double overallDifficulty) => getAccuracy(deviation, overallDifficulty) * (0.98 + Math.Pow(overallDifficulty, 2) / 2500);
+            double negativeAimScaling(double overallDifficulty) => -aimScaling(overallDifficulty);
+
+            double optimalOd = FindMinimum.OfScalarFunctionConstrained(negativeAimScaling, 0, 100 / 9.0);
+            return Math.Max(aimScaling(optimalOd), accuracy * (0.98 + Math.Pow(attributes.OverallDifficulty, 2) / 2500));
+        }
+
+        private double computeOptimalSpeedScaling(OsuDifficultyAttributes attributes)
+        {
+            double getAccuracy(double d, double od)
+            {
+                double acc = 2 / 3.0 * SpecialFunctions.Erf((80 - 6 * od) / (d * Math.Sqrt(2)))
+                             + 1 / 6.0 * SpecialFunctions.Erf((140 - 8 * od) / (d * Math.Sqrt(2)))
+                             + 1 / 6.0 * SpecialFunctions.Erf((200 - 10 * od) / (d * Math.Sqrt(2)));
+                return acc;
+            }
+
+            double calculateDeviation()
+            {
+                double unstableRateToAccuracy(double deviation) => getAccuracy(deviation, attributes.OverallDifficulty);
+                double urMinusAccuracy(double deviation) => unstableRateToAccuracy(deviation) - (6 * countGreat + 2 * countOk + countMeh) / (6 * (totalHits + 1.0));
+                return Bisection.FindRoot(urMinusAccuracy, 1, 100);
+            }
+
+            double deviation = calculateDeviation();
+
+            double speedScaling(double overallDifficulty) => (0.95 + Math.Pow(overallDifficulty, 2) / 750) * Math.Pow(getAccuracy(deviation, overallDifficulty), (14.5 - Math.Max(overallDifficulty, 8)) / 2);
+            double negativeSpeedScaling(double overallDifficulty) => -speedScaling(overallDifficulty);
+
+            double optimalOd = FindMinimum.OfScalarFunctionConstrained(negativeSpeedScaling, 0, 100 / 9.0);
+            return Math.Max(speedScaling(optimalOd), (0.95 + Math.Pow(attributes.OverallDifficulty, 2) / 750) * Math.Pow(accuracy, (14.5 - Math.Max(attributes.OverallDifficulty, 8)) / 2));
         }
 
         private double computeFlashlightValue(ScoreInfo score, OsuDifficultyAttributes attributes)
