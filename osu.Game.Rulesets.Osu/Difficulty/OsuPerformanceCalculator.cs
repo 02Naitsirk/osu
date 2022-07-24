@@ -7,7 +7,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MathNet.Numerics;
+using MathNet.Numerics.RootFinding;
+using osu.Framework.Audio.Track;
+using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Game.Rulesets.Difficulty;
+using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Osu.Mods;
 using osu.Game.Rulesets.Scoring;
 using osu.Game.Scoring;
@@ -24,6 +28,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         private int countMiss;
 
         private double effectiveMissCount;
+        private double deviation;
+        private double speedDeviation;
 
         public OsuPerformanceCalculator()
             : base(new OsuRuleset())
@@ -41,6 +47,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             countMeh = score.Statistics.GetValueOrDefault(HitResult.Meh);
             countMiss = score.Statistics.GetValueOrDefault(HitResult.Miss);
             effectiveMissCount = calculateEffectiveMissCount(osuAttributes);
+            deviation = calculateDeviation(score, osuAttributes);
+            speedDeviation = calculateSpeedDeviation(score, osuAttributes);
 
             const double multiplier = 1.0; // This is being adjusted to keep the final pp value scaled around what it used to be when changing things.
 
@@ -57,6 +65,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 Accuracy = accuracyValue,
                 Flashlight = flashlightValue,
                 EffectiveMissCount = effectiveMissCount,
+                Deviation = deviation,
+                SpeedDeviation = speedDeviation,
                 Total = totalValue
             };
         }
@@ -81,25 +91,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (attributes.HitCircleCount - countMiss == 0)
                 return aimValue;
 
-            double? deviation = calculateDeviation(attributes);
-
-            switch (deviation)
-            {
-                case null:
-                    return aimValue;
-
-                case double.PositiveInfinity:
-                    return 0;
-            }
-
             if (score.Mods.Any(h => h is OsuModHidden))
             {
                 // We want to give more reward for lower AR when it comes to aim and HD. This nerfs high AR and buffs lower AR.
                 aimValue *= 1.0 + 0.04 * (12.0 - attributes.ApproachRate);
             }
 
-            double deviationScaling = SpecialFunctions.Erf(50 / (Math.Sqrt(2) * (double)deviation));
-            aimValue *= deviationScaling;
+            // Scale the aim value with deviation
+            aimValue *= SpecialFunctions.Erf(50 / (Math.Sqrt(2) * deviation));
 
             return aimValue;
         }
@@ -114,25 +113,14 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (totalSuccessfulHits == 0)
                 return 0;
 
-            double? deviation = calculateDeviation(attributes);
-
-            switch (deviation)
-            {
-                case null:
-                    return speedValue;
-
-                case double.PositiveInfinity:
-                    return 0;
-            }
-
             if (score.Mods.Any(m => m is OsuModHidden))
             {
                 // We want to give more reward for lower AR when it comes to aim and HD. This nerfs high AR and buffs lower AR.
                 speedValue *= 1.0 + 0.04 * (12.0 - attributes.ApproachRate);
             }
 
-            double deviationScaling = SpecialFunctions.Erf(20 / (Math.Sqrt(2) * (double)deviation));
-            speedValue *= deviationScaling;
+            // Scale the speed value with speed deviation
+            speedValue *= 120.289 / 108 * Math.Pow(SpecialFunctions.Erf(26 / (Math.Sqrt(2) * speedDeviation)), 2);
 
             return speedValue;
         }
@@ -145,14 +133,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (attributes.HitCircleCount == 0 || totalSuccessfulHits == 0)
                 return 0;
 
-            double? deviation = calculateDeviation(attributes);
-
-            if (deviation == null)
-            {
-                return 0;
-            }
-
-            double accuracyValue = 90 * Math.Pow(7.5 / (double)deviation, 2);
+            double accuracyValue = 90 * Math.Pow(7.5 / deviation, 2);
 
             if (score.Mods.Any(m => m is OsuModHidden))
                 accuracyValue *= 1.08;
@@ -190,22 +171,76 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             return flashlightValue;
         }
 
-        private double? calculateDeviation(OsuDifficultyAttributes attributes)
+        private double calculateDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
         {
-            if (attributes.HitCircleCount == 0)
-                return null;
-
-            double greatHitWindow = 80 - 6 * attributes.OverallDifficulty;
-            double greatProbability = (attributes.HitCircleCount - countOk - countMeh - countMiss) / (attributes.HitCircleCount + 1.0);
-
-            if (greatProbability <= 0)
-            {
+            if (totalSuccessfulHits == 0)
                 return double.PositiveInfinity;
+
+            var track = new TrackVirtual(10000);
+            score.Mods.OfType<IApplicableToTrack>().ForEach(m => m.ApplyToTrack(track));
+            double clockRate = track.Rate;
+
+            double hitWindow300 = 80 - 6 * attributes.OverallDifficulty;
+            double hitWindow100 = (140 - 8 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
+            double hitWindow50 = (200 - 10 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
+
+            double root2 = Math.Sqrt(2);
+
+            int greatCountOnCircles = Math.Max(0, attributes.HitCircleCount - countOk - countMeh - countMiss);
+            int okCountOnCircles = Math.Min(countOk, attributes.HitCircleCount) + 1; // Add one 100 to process SS scores.
+            int mehCountOnCircles = Math.Min(countMeh, attributes.HitCircleCount);
+            int slidersHit = Math.Max(0, attributes.SliderCount - countMiss);
+
+            // Derivative of erf(x)
+            double erfPrime(double x) => 2 / Math.Sqrt(Math.PI) * Math.Exp(-x * x);
+
+            // Let f(x) = erf(x). To find the deviation, we have to maximize the log-likelihood function,
+            // which is the same as finding the zero of the derivative of the log-likelihood function.
+            double logLikelihoodGradient(double u)
+            {
+                double t1 = -hitWindow50 * slidersHit * erfPrime(hitWindow50 / (root2 * u)) / SpecialFunctions.Erf(hitWindow50 / (root2 * u));
+                double t2 = -hitWindow300 * greatCountOnCircles * erfPrime(hitWindow300 / (root2 * u)) / SpecialFunctions.Erf(hitWindow300 / (root2 * u));
+                double t3 = mehCountOnCircles * (-hitWindow100 * erfPrime(hitWindow100 / (root2 * u)) + hitWindow50 * erfPrime(hitWindow50 / (root2 * u))) / (SpecialFunctions.Erfc(hitWindow50 / (root2 * u)) - SpecialFunctions.Erfc(hitWindow100 / (root2 * u)));
+                double t4 = okCountOnCircles * (-hitWindow100 * erfPrime(hitWindow100 / (root2 * u)) + hitWindow300 * erfPrime(hitWindow300 / (root2 * u))) / (SpecialFunctions.Erfc(hitWindow300 / (root2 * u)) - SpecialFunctions.Erfc(hitWindow100 / (root2 * u)));
+                return (t1 + t2 + t3 + t4) / (root2 * u * u);
             }
 
-            double deviation = greatHitWindow / (Math.Sqrt(2) * SpecialFunctions.ErfInv(greatProbability));
+            return Brent.FindRootExpand(logLikelihoodGradient, 4, 20, 1e-6, expandFactor: 2);
+        }
 
-            return deviation;
+        private double calculateSpeedDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
+        {
+            if (totalSuccessfulHits == 0)
+                return double.PositiveInfinity;
+
+            var track = new TrackVirtual(10000);
+            score.Mods.OfType<IApplicableToTrack>().ForEach(m => m.ApplyToTrack(track));
+            double clockRate = track.Rate;
+
+            double hitWindow300 = 80 - 6 * attributes.OverallDifficulty;
+            double hitWindow100 = (140 - 8 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
+            double hitWindow50 = (200 - 10 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
+            double root2 = Math.Sqrt(2);
+
+            double relevantTotalDiff = totalHits - attributes.SpeedNoteCount;
+            double relevantCountGreat = Math.Max(0, countGreat - relevantTotalDiff);
+            double relevantCountOk = Math.Max(0, countOk - Math.Max(0, relevantTotalDiff - countGreat)) + 1;
+            double relevantCountMeh = Math.Max(0, countMeh - Math.Max(0, relevantTotalDiff - countGreat - countOk));
+
+            // Derivative of erf(x)
+            double erfPrime(double x) => 2 / Math.Sqrt(Math.PI) * Math.Exp(-x * x);
+
+            // Let f(x) = erf(x). To find the deviation, we have to maximize the log-likelihood function,
+            // which is the same as finding the zero of the derivative of the log-likelihood function.
+            double logLikelihoodGradient(double u)
+            {
+                double t1 = -hitWindow300 * relevantCountGreat * erfPrime(hitWindow300 / (root2 * u)) / SpecialFunctions.Erf(hitWindow300 / (root2 * u));
+                double t2 = relevantCountMeh * (-hitWindow100 * erfPrime(hitWindow100 / (root2 * u)) + hitWindow50 * erfPrime(hitWindow50 / (root2 * u))) / (SpecialFunctions.Erfc(hitWindow50 / (root2 * u)) - SpecialFunctions.Erfc(hitWindow100 / (root2 * u)));
+                double t3 = relevantCountOk * (-hitWindow100 * erfPrime(hitWindow100 / (root2 * u)) + hitWindow300 * erfPrime(hitWindow300 / (root2 * u))) / (SpecialFunctions.Erfc(hitWindow300 / (root2 * u)) - SpecialFunctions.Erfc(hitWindow100 / (root2 * u)));
+                return (t1 + t2 + t3) / (root2 * u * u);
+            }
+
+            return Brent.FindRootExpand(logLikelihoodGradient, 4, 20, 1e-6, expandFactor: 2);
         }
 
         private double calculateEffectiveMissCount(OsuDifficultyAttributes attributes)
