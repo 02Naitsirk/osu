@@ -24,6 +24,7 @@ using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
+using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using osu.Framework.Screens;
 using osu.Framework.Threading;
@@ -158,6 +159,8 @@ namespace osu.Game
 
         protected FirstRunSetupOverlay FirstRunOverlay { get; private set; }
 
+        private FPSCounter fpsCounter;
+
         private VolumeOverlay volume;
 
         private OsuLogo osuLogo;
@@ -231,7 +234,7 @@ namespace osu.Game
         /// <summary>
         /// Unregisters a blocking <see cref="OverlayContainer"/> that was not created by <see cref="OsuGame"/> itself.
         /// </summary>
-        private void unregisterBlockingOverlay(OverlayContainer overlayContainer)
+        private void unregisterBlockingOverlay(OverlayContainer overlayContainer) => Schedule(() =>
         {
             externalOverlays.Remove(overlayContainer);
 
@@ -239,7 +242,7 @@ namespace osu.Game
                 focusedOverlays.Remove(focusedOverlayContainer);
 
             overlayContainer.Expire();
-        }
+        });
 
         #endregion
 
@@ -486,6 +489,7 @@ namespace osu.Game
         /// </remarks>
         public void PresentBeatmap(IBeatmapSetInfo beatmap, Predicate<BeatmapInfo> difficultyCriteria = null)
         {
+            Logger.Log($"Beginning {nameof(PresentBeatmap)} with beatmap {beatmap}");
             Live<BeatmapSetInfo> databasedSet = null;
 
             if (beatmap.OnlineID > 0)
@@ -522,6 +526,7 @@ namespace osu.Game
                 }
                 else
                 {
+                    Logger.Log($"Completing {nameof(PresentBeatmap)} with beatmap {beatmap} ruleset {selection.Ruleset}");
                     Ruleset.Value = selection.Ruleset;
                     Beatmap.Value = BeatmapManager.GetWorkingBeatmap(selection);
                 }
@@ -534,6 +539,8 @@ namespace osu.Game
         /// </summary>
         public void PresentScore(IScoreInfo score, ScorePresentType presentType = ScorePresentType.Results)
         {
+            Logger.Log($"Beginning {nameof(PresentScore)} with score {score}");
+
             // The given ScoreInfo may have missing properties if it was retrieved from online data. Re-retrieve it from the database
             // to ensure all the required data for presenting a replay are present.
             ScoreInfo databasedScoreInfo = null;
@@ -568,6 +575,8 @@ namespace osu.Game
 
             PerformFromScreen(screen =>
             {
+                Logger.Log($"{nameof(PresentScore)} updating beatmap ({databasedBeatmap}) and ruleset ({databasedScore.ScoreInfo.Ruleset} to match score");
+
                 Ruleset.Value = databasedScore.ScoreInfo.Ruleset;
                 Beatmap.Value = BeatmapManager.GetWorkingBeatmap(databasedBeatmap);
 
@@ -612,7 +621,6 @@ namespace osu.Game
         {
             beatmap.OldValue?.CancelAsyncLoad();
             beatmap.NewValue?.BeginAsyncLoad();
-            Logger.Log($"Game-wide working beatmap updated to {beatmap.NewValue}");
         }
 
         private void modsChanged(ValueChangedEvent<IReadOnlyList<Mod>> mods)
@@ -681,27 +689,29 @@ namespace osu.Game
         {
             base.LoadComplete();
 
-            foreach (var language in Enum.GetValues(typeof(Language)).OfType<Language>())
+            var languages = Enum.GetValues(typeof(Language)).OfType<Language>();
+
+            var mappings = languages.Select(language =>
             {
 #if DEBUG
                 if (language == Language.debug)
-                {
-                    Localisation.AddLanguage(Language.debug.ToString(), new DebugLocalisationStore());
-                    continue;
-                }
+                    return new LocaleMapping("debug", new DebugLocalisationStore());
 #endif
 
                 string cultureCode = language.ToCultureCode();
 
                 try
                 {
-                    Localisation.AddLanguage(cultureCode, new ResourceManagerLocalisationStore(cultureCode));
+                    return new LocaleMapping(new ResourceManagerLocalisationStore(cultureCode));
                 }
                 catch (Exception ex)
                 {
                     Logger.Error(ex, $"Could not load localisations for language \"{cultureCode}\"");
+                    return null;
                 }
-            }
+            }).Where(m => m != null);
+
+            Localisation.AddLocaleMappings(mappings);
 
             // The next time this is updated is in UpdateAfterChildren, which occurs too late and results
             // in the cursor being shown for a few frames during the intro.
@@ -805,6 +815,13 @@ namespace osu.Game
 
             ScreenStack.ScreenPushed += screenPushed;
             ScreenStack.ScreenExited += screenExited;
+
+            loadComponentSingleFile(fpsCounter = new FPSCounter
+            {
+                Anchor = Anchor.BottomRight,
+                Origin = Anchor.BottomRight,
+                Margin = new MarginPadding(5),
+            }, topMostOverlayContent.Add);
 
             if (!args?.Any(a => a == @"--no-version-overlay") ?? true)
                 loadComponentSingleFile(versionManager = new VersionManager { Depth = int.MinValue }, ScreenContainer.Add);
@@ -1106,6 +1123,10 @@ namespace osu.Game
 
             switch (e.Action)
             {
+                case GlobalAction.ToggleFPSDisplay:
+                    fpsCounter.ToggleVisibility();
+                    return true;
+
                 case GlobalAction.ToggleSkinEditor:
                     skinEditor.ToggleVisibility();
                     return true;
