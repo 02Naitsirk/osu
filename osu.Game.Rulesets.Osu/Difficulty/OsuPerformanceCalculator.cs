@@ -133,7 +133,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (attributes.HitCircleCount == 0 || totalSuccessfulHits == 0)
                 return 0;
 
-            double accuracyValue = 90 * Math.Pow(7.5 / deviation, 2);
+            double accuracyValue = 4407 * Math.Pow(deviation, -1.818);
 
             if (score.Mods.Any(m => m is OsuModHidden))
                 accuracyValue *= 1.08;
