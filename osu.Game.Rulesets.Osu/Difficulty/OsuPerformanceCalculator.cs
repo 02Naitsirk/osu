@@ -171,7 +171,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             return flashlightValue;
         }
 
-private double calculateDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
+        private double calculateDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
         {
             if (totalSuccessfulHits == 0)
                 return double.PositiveInfinity;
@@ -202,7 +202,7 @@ private double calculateDeviation(ScoreInfo score, OsuDifficultyAttributes attri
                 return (t1 + t2 + t3) / (root2 * u * u);
             }
 
-            return Brent.FindRootExpand(logLikelihoodGradient, 3, 20, 1e-6, expandFactor: 2);
+            return Brent.FindRootExpand(logLikelihoodGradient, 2, 20, 1e-6, expandFactor: 2);
         }
 
         private double calculateSpeedDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
@@ -235,7 +235,7 @@ private double calculateDeviation(ScoreInfo score, OsuDifficultyAttributes attri
                 return (t1 + t2) / (root2 * u * u);
             }
 
-            return Brent.FindRootExpand(logLikelihoodGradient, 3, 20, 1e-6, expandFactor: 2);
+            return Brent.FindRootExpand(logLikelihoodGradient, 2, 20, 1e-6, expandFactor: 2);
         }
 
         private double calculateEffectiveMissCount(OsuDifficultyAttributes attributes)
