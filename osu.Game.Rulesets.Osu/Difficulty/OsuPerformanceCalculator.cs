@@ -105,19 +105,20 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
         private double computeSpeedValue(ScoreInfo score, OsuDifficultyAttributes attributes)
         {
-            if (score.Mods.Any(h => h is OsuModRelax))
+            if (score.Mods.Any(h => h is OsuModRelax) || totalSuccessfulHits == 0)
                 return 0.0;
 
             double speedValue = Math.Pow(attributes.SpeedDifficulty, 3);
-
-            if (totalSuccessfulHits == 0)
-                return 0;
 
             if (score.Mods.Any(m => m is OsuModHidden))
             {
                 // We want to give more reward for lower AR when it comes to aim and HD. This nerfs high AR and buffs lower AR.
                 speedValue *= 1.0 + 0.04 * (12.0 - attributes.ApproachRate);
             }
+
+            double lengthBonus = 0.95 + 0.4 * Math.Min(1.0, totalHits / 2000.0) +
+                                 (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
+            speedValue *= lengthBonus;
 
             // Scale the speed value with speed deviation
             speedValue *= 120.289 / 108 * Math.Pow(SpecialFunctions.Erf(26 / (Math.Sqrt(2) * speedDeviation)), 2);
@@ -127,13 +128,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
         private double computeAccuracyValue(ScoreInfo score, OsuDifficultyAttributes attributes)
         {
-            if (score.Mods.Any(h => h is OsuModRelax))
+            if (score.Mods.Any(h => h is OsuModRelax) || attributes.HitCircleCount == 0 || totalSuccessfulHits == 0)
                 return 0.0;
 
-            if (attributes.HitCircleCount == 0 || totalSuccessfulHits == 0)
-                return 0;
-
-            double accuracyValue = 4407 * Math.Pow(deviation, -1.818);
+            double accuracyValue = 90 * Math.Pow(7.5 / deviation, 2);
 
             if (score.Mods.Any(m => m is OsuModHidden))
                 accuracyValue *= 1.08;
