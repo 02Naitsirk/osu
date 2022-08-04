@@ -131,7 +131,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (score.Mods.Any(h => h is OsuModRelax) || attributes.HitCircleCount == 0 || totalSuccessfulHits == 0)
                 return 0.0;
 
-            double accuracyValue = 90 * Math.Pow(7.5 / deviation, 2);
+            double accuracyValue = 100 * Math.Pow(8 / deviation, 2);
 
             if (score.Mods.Any(m => m is OsuModHidden))
                 accuracyValue *= 1.08;
