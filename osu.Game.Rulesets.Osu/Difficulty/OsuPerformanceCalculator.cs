@@ -54,7 +54,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             double aimValue = computeAimValue(score, osuAttributes);
             double speedValue = computeSpeedValue(score, osuAttributes);
-            double accuracyValue = computeAccuracyValue(score, osuAttributes);
+            double accuracyValue = computeAccuracyValue(score);
             double flashlightValue = computeFlashlightValue(score, osuAttributes);
             double totalValue = multiplier * (aimValue + speedValue + accuracyValue + flashlightValue);
 
@@ -126,15 +126,25 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             return speedValue;
         }
 
-        private double computeAccuracyValue(ScoreInfo score, OsuDifficultyAttributes attributes)
+        private double computeAccuracyValue(ScoreInfo score)
         {
-            if (score.Mods.Any(h => h is OsuModRelax) || attributes.HitCircleCount == 0 || totalSuccessfulHits == 0)
+            if (score.Mods.Any(h => h is OsuModRelax) || totalSuccessfulHits == 0)
                 return 0.0;
 
-            double accuracyValue = 100 * Math.Pow(8 / deviation, 2);
+            // This formula is based on the previous accuracy formula to keep values similar, but it caps SS pp.
+            // Eventually, this should be changed to a power law to make SS pp uncapped.
+            double accuracyValue = 763.087 * Math.Exp(-0.230237 * deviation);
 
-            if (score.Mods.Any(m => m is OsuModHidden))
+            // Increasing the accuracy value by object count for Blinds isn't ideal, so the minimum buff is given.
+            if (score.Mods.Any(m => m is OsuModBlinds))
+                accuracyValue *= 1.14;
+            else if (score.Mods.Any(m => m is OsuModHidden))
                 accuracyValue *= 1.08;
+
+            if (score.Mods.Any(m => m is OsuModFlashlight))
+                accuracyValue *= 1.02;
+
+            accuracyValue *= 1 - (double)countMiss / totalHits;
 
             return accuracyValue;
         }
