@@ -78,10 +78,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         {
             try
             {
-                double maxDifficulty = aimDifficulties.Max();
                 double getNonFcProbability(double skill) => 1 - getFcProbability(skill);
-                double intervalEnd = 5 * maxDifficulty * Math.Sqrt(Math.Log(1 + aimDifficulties.Count));
-                return Integrate.OnClosedInterval(getNonFcProbability, 0, intervalEnd, 1e-4);
+                return Integrate.DoubleExponential(getNonFcProbability, 0, double.PositiveInfinity, 1e-4);
             }
             catch
             {
