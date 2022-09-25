@@ -22,7 +22,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 {
     public class OsuDifficultyCalculator : DifficultyCalculator
     {
-        private const double aim_scaling = 19.75;
+        private const double aim_scaling = 50;
         private const double aim_exp = 0.829842642;
         private const double tap_scaling = 0.10769;
         private const double tap_exp = 0.5;
@@ -49,7 +49,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (mods.Any(h => h is OsuModRelax))
                 speedRating = 0.0;
 
-            double starRating = 1.05 * Math.Cbrt(Math.Pow(aimRating, 3) + Math.Pow(speedRating, 3));
+            double starRating = Math.Cbrt(Math.Pow(aimRating, 3) + Math.Pow(speedRating, 3));
 
             double preempt = IBeatmapDifficultyInfo.DifficultyRange(beatmap.Difficulty.ApproachRate, 1800, 1200, 450) / clockRate;
             double drainRate = beatmap.Difficulty.DrainRate;

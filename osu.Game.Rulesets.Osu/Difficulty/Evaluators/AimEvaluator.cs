@@ -21,49 +21,51 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
         /// </summary>
         public static double EvaluateDifficultyOf(DifficultyHitObject current, double mehHitWindow)
         {
-            double aimDifficulty = aimDifficultyOf(current);
-            double coordinationDifficulty = coordinationDifficultyOf(current, mehHitWindow);
-            return aimDifficulty + coordinationDifficulty;
-        }
-
-        /// <summary>
-        /// Calculates the aim difficulty of the current object for a player with an aim skill of 1.
-        /// </summary>
-        private static double aimDifficultyOf(DifficultyHitObject current)
-        {
-            var osuCurrObj = (OsuDifficultyHitObject)current;
-
-            if (osuCurrObj.Previous(0) == null)
-                return 0;
-
-            double integrand(double t) => Math.Sqrt(Math.Pow(velocityVectorAt(osuCurrObj, t)[0], 2) + Math.Pow(velocityVectorAt(osuCurrObj, t)[1], 2));
-            return Integrate.OnClosedInterval(integrand, 0, osuCurrObj.StrainTime, numerical_algorithm_accuracy) / osuCurrObj.StrainTime;
+            double aimDifficulty = aimDifficultyOf(current, mehHitWindow);
+            return aimDifficulty;
         }
 
         /// <summary>
         /// Calculates the coordination difficulty of the current object, defined as the reciprocal of half of the amount of time the player spends in the note.
         /// </summary>
-        private static double coordinationDifficultyOf(DifficultyHitObject current, double mehHitWindow)
+        private static double aimDifficultyOf(DifficultyHitObject current, double mehHitWindow)
         {
             var osuPrevObj = (OsuDifficultyHitObject)current.Previous(0);
             var osuCurrObj = (OsuDifficultyHitObject)current;
             var osuNextObj = (OsuDifficultyHitObject)current.Next(0);
 
+            double aimDifficulty = 0;
             double timeInNote = 0;
 
-            // Determine the amount of time the cursor is within the current circle as it moves from the previous circle.
+            // Aim difficulty is calculated by finding the average velocity inside of the current circle.
+            // This is equivalent to integrating the magnitude of velocity from the time the player enters to the time the player exits,
+            // and then dividing by the amount of time spent inside the note.
+
+            // By properties of integration, we can split the integral into three parts.
+            // First, we find the average velocity from the time the player enters the circle, to the time the player clicks it.
+            // Then, we find the average velocity from the time the player clicks the circle, to the time the player exits it.
+            // Finally, we sum those two values and divide by the time spent inside the note.
+
+            // Find the average velocity inside the current circle from the time of entry to the time the circle is to be clicked.
             if (osuPrevObj != null)
             {
-                // This distance must be computed because sliders aren't being taken into account.
-                double realSquaredDistance = Math.Pow(osuCurrObj.NormalizedX - osuPrevObj.NormalizedX, 2) + Math.Pow(osuCurrObj.NormalizedY - osuPrevObj.NormalizedY, 2);
+                // Magnitude of velocity from the previous circle to the current circle.
+                double integrand(double t) => Math.Sqrt(Math.Pow(velocityVectorAt(osuCurrObj, t)[0], 2) + Math.Pow(velocityVectorAt(osuCurrObj, t)[1], 2));
 
-                // If the current and previous objects are overlapped by 50% or more, just add the DeltaTime of the current object.
-                if (realSquaredDistance <= 1)
+                // Compute the raw distance between two points, which doesn't take into account sliders.
+                double realDistance = Math.Sqrt(Math.Pow(osuCurrObj.NormalizedX - osuPrevObj.NormalizedX, 2) + Math.Pow(osuCurrObj.NormalizedY - osuPrevObj.NormalizedY, 2));
+
+                // If the current and previous objects are overlapped by 50% or more, then hitting the previous object would imply the cursor is already inside the current object.
+                // This means that the player enters the current note as soon as they clicked the previous note, so just add the current delta time.
+                if (realDistance <= 1)
                 {
+                    aimDifficulty += Integrate.OnClosedInterval(integrand, 0, osuCurrObj.StrainTime, numerical_algorithm_accuracy);
                     timeInNote += osuCurrObj.StrainTime;
                 }
+                // Otherwise, the player takes time to travel from the previous object to the current object.
                 else
                 {
+                    // X and Y positions.
                     double xComponent(double t) => positionVectorAt(current, t)[0];
                     double yComponent(double t) => positionVectorAt(current, t)[1];
 
@@ -74,6 +76,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
                     double root(double t) => Math.Pow(xComponent(t) - osuCurrObj.NormalizedX, 2) + Math.Pow(yComponent(t) - osuCurrObj.NormalizedY, 2) - 1;
 
                     double timeEnterNote = Brent.FindRoot(root, 0, osuCurrObj.StrainTime, numerical_algorithm_accuracy);
+
+                    aimDifficulty += Integrate.OnClosedInterval(integrand, timeEnterNote, osuCurrObj.StrainTime, numerical_algorithm_accuracy);
                     timeInNote += osuCurrObj.StrainTime - timeEnterNote;
                 }
             }
@@ -82,13 +86,18 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
                 timeInNote += mehHitWindow;
             }
 
-            // Determine the amount of time the cursor is within the current circle as it moves toward the next circle.
+            // Find the average velocity inside the current circle from the time the circle is to be clicked to the time of exit.
             if (osuNextObj != null)
             {
-                double realSquaredDistance = Math.Pow(osuNextObj.NormalizedX - osuCurrObj.NormalizedX, 2) + Math.Pow(osuNextObj.NormalizedY - osuCurrObj.NormalizedY, 2);
+                // Magnitude of velocity from the current circle to the next circle.
+                double integrand(double t) => Math.Sqrt(Math.Pow(velocityVectorAt(osuNextObj, t)[0], 2) + Math.Pow(velocityVectorAt(osuNextObj, t)[1], 2));
 
-                if (realSquaredDistance <= 1)
+                // Compute the raw distance between the current object and next object, which doesn't take into account sliders.
+                double realDistance = Math.Sqrt(Math.Pow(osuNextObj.NormalizedX - osuCurrObj.NormalizedX, 2) + Math.Pow(osuNextObj.NormalizedY - osuCurrObj.NormalizedY, 2));
+
+                if (realDistance <= 1)
                 {
+                    aimDifficulty += Integrate.OnClosedInterval(integrand, 0, osuNextObj.StrainTime, numerical_algorithm_accuracy);
                     timeInNote += osuNextObj.StrainTime;
                 }
                 else
@@ -99,6 +108,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
                     double root(double t) => Math.Pow(xComponent(t) - osuCurrObj.NormalizedX, 2) + Math.Pow(yComponent(t) - osuCurrObj.NormalizedY, 2) - 1;
 
                     double timeExitNote = Brent.FindRoot(root, 0, osuNextObj.StrainTime, numerical_algorithm_accuracy);
+                    aimDifficulty += Integrate.OnClosedInterval(integrand, 0, timeExitNote, numerical_algorithm_accuracy);
                     timeInNote += timeExitNote;
                 }
             }
@@ -107,7 +117,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
                 timeInNote += mehHitWindow;
             }
 
-            return 2 / timeInNote;
+            return aimDifficulty / timeInNote;
         }
 
         /// <summary>
@@ -183,7 +193,22 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
         /// </summary>
         private static DenseVector generateVelocityVectorAt(DifficultyHitObject hitObject)
         {
-            double[] velocityVector = { 0.0, 0.0 };
+            var osuPrevObj = (OsuDifficultyHitObject)hitObject.Previous(0);
+            var osuNextObj = (OsuDifficultyHitObject)hitObject.Next(0);
+
+            double[] velocityVector;
+
+            if (osuPrevObj != null && osuNextObj != null)
+            {
+                double xComponent = (osuNextObj.NormalizedX - osuPrevObj.NormalizedX) / (osuNextObj.StartTime - osuPrevObj.StartTime);
+                double yComponent = (osuNextObj.NormalizedY - osuPrevObj.NormalizedY) / (osuNextObj.StartTime - osuPrevObj.StartTime);
+                velocityVector = new[] { xComponent, yComponent };
+            }
+            else
+            {
+                velocityVector = new[] { 0.0, 0.0 };
+            }
+
             return new DenseVector(velocityVector);
         }
 
@@ -211,8 +236,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
         /// </param>
         private static double positionFunction(double x0, double x1, double v0, double v1, double dt, double t)
         {
-            const double pi = Math.PI;
-            return t * t * (v1 - v0) / (2 * dt) - Math.Cos(pi * t / dt) * ((x1 - x0) / 2 - dt * (v0 + v1) / 4) + t * v0 - dt * (v0 + v1) / 4 + (x0 + x1) / 2;
+            return (-Math.Pow(t - dt, 3) * (6 * t * t + 3 * t * dt + dt * dt) * x0 + Math.Pow(t, 3) * (6 * t * t - 15 * t * dt + 10 * dt * dt) * x1 - t * (t - dt) * dt * (t * t * (3 * t - 4 * dt) * v1 + Math.Pow(t - dt, 2) * (3 * t + dt) * v0))
+                   / Math.Pow(dt, 5);
         }
 
         /// <summary>
@@ -239,8 +264,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
         /// </param>
         private static double velocityFunction(double x0, double x1, double v0, double v1, double dt, double t)
         {
-            const double pi = Math.PI;
-            return v0 + t * (v1 - v0) / dt - pi * Math.Sin(pi * t / dt) * (dt * (v0 + v1) + 2 * (x0 - x1)) / (4 * dt);
+            return (-30 * t * t * Math.Pow(t - dt, 2) * x0 + 30 * t * t * Math.Pow(t - dt, 2) * x1 + t * t * dt * (-15 * t * t + 28 * t * dt - 12 * dt * dt) * v1
+                    + dt * (-15 * Math.Pow(t, 4) + 32 * t * t * t * dt - 18 * t * t * dt * dt + Math.Pow(dt, 4)) * v0) / Math.Pow(dt, 5);
         }
     }
 }
