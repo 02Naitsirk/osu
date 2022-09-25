@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MathNet.Numerics;
+using MathNet.Numerics.Distributions;
 using MathNet.Numerics.RootFinding;
 using osu.Framework.Audio.Track;
 using osu.Framework.Extensions.IEnumerableExtensions;
@@ -184,33 +185,18 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (totalSuccessfulHits == 0)
                 return double.PositiveInfinity;
 
-            var track = new TrackVirtual(10000);
-            score.Mods.OfType<IApplicableToTrack>().ForEach(m => m.ApplyToTrack(track));
-            double clockRate = track.Rate;
-
+            int inaccuracies = countMeh + countOk;
+            int hitCirclesMinusMisses = attributes.HitCircleCount - countMiss;
             double hitWindow300 = 80 - 6 * attributes.OverallDifficulty;
-            double hitWindow50 = (200 - 10 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
 
-            double root2 = Math.Sqrt(2);
-
-            int greatCountOnCircles = Math.Max(0, attributes.HitCircleCount - countOk - countMeh - countMiss);
-            int inaccuracies = Math.Min(countOk + countMeh, attributes.HitCircleCount) + 1; // Add one 100 to process SS scores.
-            int slidersHit = Math.Max(0, attributes.SliderCount - countMiss);
-
-            // Derivative of erf(x)
-            double erfPrime(double x) => 2 / Math.Sqrt(Math.PI) * Math.Exp(-x * x);
-
-            // Let f(x) = erf(x). To find the deviation, we have to maximize the log-likelihood function,
-            // which is the same as finding the zero of the derivative of the log-likelihood function.
-            double logLikelihoodGradient(double u)
+            double getDeviationAt(double d)
             {
-                double t1 = -hitWindow50 * slidersHit * erfPrime(hitWindow50 / (root2 * u)) / SpecialFunctions.Erf(hitWindow50 / (root2 * u));
-                double t2 = -hitWindow300 * greatCountOnCircles * erfPrime(hitWindow300 / (root2 * u)) / SpecialFunctions.Erf(hitWindow300 / (root2 * u));
-                double t3 = inaccuracies * (-hitWindow50 * erfPrime(hitWindow50 / (root2 * u)) + hitWindow300 * erfPrime(hitWindow300 / (root2 * u))) / (SpecialFunctions.Erfc(hitWindow300 / (root2 * u)) - SpecialFunctions.Erfc(hitWindow50 / (root2 * u)));
-                return (t1 + t2 + t3) / (root2 * u * u);
+                double p = SpecialFunctions.Erfc(hitWindow300 / (Math.Sqrt(2) * d));
+                return Binomial.CDF(p, hitCirclesMinusMisses, inaccuracies);
             }
 
-            return Brent.FindRootExpand(logLikelihoodGradient, 2, 20, 1e-6, expandFactor: 2);
+            double expectedDeviation = Integrate.DoubleExponential(getDeviationAt, 0, double.PositiveInfinity, 1e-4);
+            return expectedDeviation;
         }
 
         private double calculateSpeedDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
