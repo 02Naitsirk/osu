@@ -189,6 +189,11 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             int hitCirclesMinusMisses = attributes.HitCircleCount - countMiss;
             double hitWindow300 = 80 - 6 * attributes.OverallDifficulty;
 
+            if (hitCirclesMinusMisses - inaccuracies <= 0)
+            {
+                return double.PositiveInfinity;
+            }
+
             double getDeviationAt(double d)
             {
                 double p = SpecialFunctions.Erfc(hitWindow300 / (Math.Sqrt(2) * d));
