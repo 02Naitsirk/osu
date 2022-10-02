@@ -21,7 +21,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
         /// This is done by integrating the magnitude of velocity from the time the player enters the note to the time the player exits,
         /// and then dividing by the amount of time spent inside the note.
         /// </summary>
-        public static double EvaluateDifficultyOf(DifficultyHitObject current, double mehHitWindow)
+        public static double EvaluateDifficultyOf(DifficultyHitObject current)
         {
             var osuPrevObj = (OsuDifficultyHitObject)current.Previous(0);
             var osuCurrObj = (OsuDifficultyHitObject)current;
@@ -32,7 +32,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
 
             if (osuPrevObj == null)
             {
-                timeInNote += mehHitWindow;
+                timeInNote += osuCurrObj.HitWindowMeh / 2;
             }
             else
             {
@@ -72,7 +72,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators
 
             if (osuNextObj == null)
             {
-                timeInNote += mehHitWindow;
+                timeInNote += osuCurrObj.HitWindowMeh / 2;
             }
             else
             {

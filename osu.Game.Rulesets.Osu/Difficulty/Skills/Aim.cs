@@ -19,13 +19,11 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
     /// </summary>
     public class Aim : Skill
     {
-        public Aim(Mod[] mods, double hitWindowMeh)
+        public Aim(Mod[] mods)
             : base(mods)
         {
-            mehWindow = hitWindowMeh;
         }
 
-        private readonly double mehWindow;
         private readonly List<double> aimDifficulties = new List<double>();
 
         /// <summary>
@@ -89,7 +87,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
 
         public override void Process(DifficultyHitObject current)
         {
-            double aimDifficulty = AimEvaluator.EvaluateDifficultyOf(current, mehWindow);
+            double aimDifficulty = AimEvaluator.EvaluateDifficultyOf(current);
             aimDifficulties.Add(aimDifficulty);
         }
 
