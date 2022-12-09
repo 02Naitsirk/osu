@@ -98,7 +98,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Preprocessing
 
             if (BaseObject is Slider sliderObject)
             {
-                HitWindowGreat = 2 * sliderObject.HeadCircle.HitWindows.WindowFor(HitResult.Great) / clockRate;
+                HitWindowGreat = 2 * Math.Min(sliderObject.HeadCircle.HitWindows.WindowFor(HitResult.Meh) / clockRate, DeltaTime);
             }
             else
             {

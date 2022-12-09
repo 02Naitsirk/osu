@@ -7,10 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MathNet.Numerics;
-using osu.Framework.Audio.Track;
-using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Game.Rulesets.Difficulty;
-using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Osu.Mods;
 using osu.Game.Rulesets.Scoring;
 using osu.Game.Scoring;
@@ -29,7 +26,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         private int countMiss;
 
         private double effectiveMissCount;
-        private double deviation;
+        private double effectiveDeviation;
         private double speedDeviation;
 
         public OsuPerformanceCalculator()
@@ -48,7 +45,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             countMeh = score.Statistics.GetValueOrDefault(HitResult.Meh);
             countMiss = score.Statistics.GetValueOrDefault(HitResult.Miss);
             effectiveMissCount = calculateEffectiveMissCount(osuAttributes);
-            deviation = calculateDeviation(score, osuAttributes);
+            effectiveDeviation = calculateEffectiveDeviation(osuAttributes);
             speedDeviation = calculateSpeedDeviation(score, osuAttributes);
 
             double multiplier = PERFORMANCE_BASE_MULTIPLIER; // This is being adjusted to keep the final pp value scaled around what it used to be when changing things.
@@ -90,7 +87,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 Accuracy = accuracyValue,
                 Flashlight = flashlightValue,
                 EffectiveMissCount = effectiveMissCount,
-                Deviation = deviation,
+                EffectiveDeviation = effectiveDeviation,
                 SpeedDeviation = speedDeviation,
                 Total = totalValue
             };
@@ -139,7 +136,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 aimValue *= sliderNerfFactor;
             }
 
-            aimValue *= SpecialFunctions.Erf(50 / (Math.Sqrt(2) * deviation));
+            aimValue *= SpecialFunctions.Erf(50 / (Math.Sqrt(2) * effectiveDeviation));
 
             return aimValue;
         }
@@ -189,7 +186,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (score.Mods.Any(h => h is OsuModRelax) || totalSuccessfulHits == 0)
                 return 0.0;
 
-            double accuracyValue = 477.793 * Math.Exp(-0.197612 * deviation);
+            double accuracyValue = 477.793 * Math.Exp(-0.197612 * effectiveDeviation);
 
             // Increasing the accuracy value by object count for Blinds isn't ideal, so the minimum buff is given.
             if (score.Mods.Any(m => m is OsuModBlinds))
@@ -221,7 +218,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                                (totalHits > 200 ? 0.2 * Math.Min(1.0, (totalHits - 200) / 200.0) : 0.0);
 
             // Scale the flashlight value with deviation
-            flashlightValue *= SpecialFunctions.Erf(50 / (Math.Sqrt(2) * deviation));
+            flashlightValue *= SpecialFunctions.Erf(50 / (Math.Sqrt(2) * effectiveDeviation));
 
             return flashlightValue;
         }
@@ -250,49 +247,23 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         /// will always return the same deviation. Sliders are treated as circles with a 50 hit window. Misses are ignored because they are usually due to misaiming,
         /// and 50s are grouped with 100s since they are usually due to misreading. Inaccuracies are capped to the number of circles in the map.
         /// </summary>
-        private double calculateDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
+        private double calculateEffectiveDeviation(OsuDifficultyAttributes attributes)
         {
-            if (totalSuccessfulHits == 0)
+            int inaccuracies = countOk + countMeh + countMiss;
+
+            if (inaccuracies > attributes.HitCircleCount)
                 return double.PositiveInfinity;
 
-            // Create a new track to properly calculate the hit windows of 50s.
-            var track = new TrackVirtual(10000);
-            score.Mods.OfType<IApplicableToTrack>().ForEach(m => m.ApplyToTrack(track));
-            double clockRate = track.Rate;
+            double ssDeviation = attributes.EffectiveSSDeviation;
+            double ratio = SpecialFunctions.ErfInv(attributes.HitCircleCount / (attributes.HitCircleCount + 1.0))
+                           / SpecialFunctions.ErfInv((attributes.HitCircleCount - inaccuracies) / (attributes.HitCircleCount + 1.0));
 
-            double hitWindow300 = 80 - 6 * attributes.OverallDifficulty;
-            double hitWindow50 = (200 - 10 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
-
-            int greatCountOnCircles = attributes.HitCircleCount - countOk - countMeh - countMiss;
-
-            // The probability that a player hits a circle is unknown, but we can estimate it to be
-            // the number of greats on circles divided by the number of circles, and then add one
-            // to the number of circles as a bias correction / bayesian prior.
-            double greatProbabilityCircle = Math.Max(0, greatCountOnCircles / (attributes.HitCircleCount + 1.0));
-            double greatProbabilitySlider;
-
-            if (greatCountOnCircles < 0)
-            {
-                int nonCircleMisses = -greatCountOnCircles;
-                greatProbabilitySlider = Math.Max(0, (attributes.SliderCount - nonCircleMisses) / (attributes.SliderCount + 1.0));
-            }
-            else
-            {
-                greatProbabilitySlider = attributes.SliderCount / (attributes.SliderCount + 1.0);
-            }
-
-            if (greatProbabilityCircle == 0 && greatProbabilitySlider == 0)
-                return double.PositiveInfinity;
-
-            double deviationOnCircles = hitWindow300 / (Math.Sqrt(2) * SpecialFunctions.ErfInv(greatProbabilityCircle));
-            double deviationOnSliders = hitWindow50 / (Math.Sqrt(2) * SpecialFunctions.ErfInv(greatProbabilitySlider));
-
-            return Math.Min(deviationOnCircles, deviationOnSliders);
+            return ssDeviation * ratio;
         }
 
         /// <summary>
-        /// Does the same as <see cref="calculateDeviation"/>, but only for notes and inaccuracies that are relevant to speed difficulty.
-        /// Treats all difficult speed notes as circles, so this method can sometimes return a lower deviation than <see cref="calculateDeviation"/>.
+        /// Does the same as <see cref="calculateEffectiveDeviation"/>, but only for notes and inaccuracies that are relevant to speed difficulty.
+        /// Treats all difficult speed notes as circles, so this method can sometimes return a lower deviation than <see cref="calculateEffectiveDeviation"/>.
         /// This is fine though, since this method is only used to scale speed pp.
         /// </summary>
         private double calculateSpeedDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
