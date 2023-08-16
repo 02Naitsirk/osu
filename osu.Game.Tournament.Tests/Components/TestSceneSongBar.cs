@@ -1,8 +1,6 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-#nullable disable
-
 using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
@@ -14,7 +12,7 @@ using osu.Game.Tournament.Models;
 namespace osu.Game.Tournament.Tests.Components
 {
     [TestFixture]
-    public class TestSceneSongBar : OsuTestScene
+    public partial class TestSceneSongBar : OsuTestScene
     {
         [Cached]
         private readonly LadderInfo ladder = new LadderInfo();
@@ -22,7 +20,7 @@ namespace osu.Game.Tournament.Tests.Components
         [Test]
         public void TestSongBar()
         {
-            SongBar songBar = null;
+            SongBar songBar = null!;
 
             AddStep("create bar", () => Child = songBar = new SongBar
             {
