@@ -6,25 +6,34 @@ using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
+using osu.Game.Localisation;
+using osu.Game.Online.API.Requests.Responses;
+using osu.Game.Online.Notifications;
+using osu.Game.Tests;
 using osu.Game.Users;
 
 namespace osu.Game.Online.API
 {
-    public class DummyAPIAccess : Component, IAPIProvider
+    public partial class DummyAPIAccess : Component, IAPIProvider
     {
-        public Bindable<User> LocalUser { get; } = new Bindable<User>(new User
+        public const int DUMMY_USER_ID = 1001;
+
+        public Bindable<APIUser> LocalUser { get; } = new Bindable<APIUser>(new APIUser
         {
-            Username = @"Dummy",
-            Id = 1001,
+            Username = @"Local user",
+            Id = DUMMY_USER_ID,
         });
 
-        public BindableList<User> Friends { get; } = new BindableList<User>();
+        public BindableList<APIUser> Friends { get; } = new BindableList<APIUser>();
 
         public Bindable<UserActivity> Activity { get; } = new Bindable<UserActivity>();
 
+        public Language Language => Language.en;
+
         public string AccessToken => "token";
 
-        public bool IsLoggedIn => State.Value == APIState.Online;
+        /// <seealso cref="APIAccess.IsLoggedIn"/>
+        public bool IsLoggedIn => State.Value > APIState.Offline;
 
         public string ProvidedUsername => LocalUser.Value.Username;
 
@@ -32,13 +41,20 @@ namespace osu.Game.Online.API
 
         public string WebsiteRootUrl => "http://localhost";
 
+        public int APIVersion => int.Parse(DateTime.Now.ToString("yyyyMMdd"));
+
+        public Exception? LastLoginError { get; private set; }
+
         /// <summary>
         /// Provide handling logic for an arbitrary API request.
         /// Should return true is a request was handled. If null or false return, the request will be failed with a <see cref="NotSupportedException"/>.
         /// </summary>
-        public Func<APIRequest, bool> HandleRequest;
+        public Func<APIRequest, bool>? HandleRequest;
 
         private readonly Bindable<APIState> state = new Bindable<APIState>(APIState.Online);
+
+        private bool shouldFailNextLogin;
+        private bool stayConnectingNextLogin;
 
         /// <summary>
         /// The current connectivity state of the API.
@@ -56,12 +72,13 @@ namespace osu.Game.Online.API
 
         public virtual void Queue(APIRequest request)
         {
-            if (HandleRequest?.Invoke(request) != true)
+            Schedule(() =>
             {
-                // this will fail due to not receiving an APIAccess, and trigger a failure on the request.
-                // this is intended - any request in testing that needs non-failures should use HandleRequest.
-                request.Perform(this);
-            }
+                if (HandleRequest?.Invoke(request) != true)
+                {
+                    request.Fail(new InvalidOperationException($@"{nameof(DummyAPIAccess)} cannot process this request."));
+                }
+            });
         }
 
         public void Perform(APIRequest request) => HandleRequest?.Invoke(request);
@@ -74,7 +91,25 @@ namespace osu.Game.Online.API
 
         public void Login(string username, string password)
         {
-            LocalUser.Value = new User
+            state.Value = APIState.Connecting;
+
+            if (stayConnectingNextLogin)
+            {
+                stayConnectingNextLogin = false;
+                return;
+            }
+
+            if (shouldFailNextLogin)
+            {
+                LastLoginError = new APIException("Not powerful enough to login.", new ArgumentException(nameof(shouldFailNextLogin)));
+
+                state.Value = APIState.Offline;
+                shouldFailNextLogin = false;
+                return;
+            }
+
+            LastLoginError = null;
+            LocalUser.Value = new APIUser
             {
                 Username = username,
                 Id = 1001,
@@ -85,13 +120,17 @@ namespace osu.Game.Online.API
 
         public void Logout()
         {
-            LocalUser.Value = new GuestUser();
             state.Value = APIState.Offline;
+            // must happen after `state.Value` is changed such that subscribers to that bindable's value changes see the correct user.
+            // compare: `APIAccess.Logout()`.
+            LocalUser.Value = new GuestUser();
         }
 
-        public IHubClientConnector GetHubConnector(string clientName, string endpoint) => null;
+        public IHubClientConnector? GetHubConnector(string clientName, string endpoint, bool preferMessagePack) => null;
 
-        public RegistrationRequest.RegistrationRequestErrors CreateAccount(string email, string username, string password)
+        public NotificationsClientConnector GetNotificationsConnector() => new PollingNotificationsClientConnector(this);
+
+        public RegistrationRequest.RegistrationRequestErrors? CreateAccount(string email, string username, string password)
         {
             Thread.Sleep(200);
             return null;
@@ -99,8 +138,26 @@ namespace osu.Game.Online.API
 
         public void SetState(APIState newState) => state.Value = newState;
 
-        IBindable<User> IAPIProvider.LocalUser => LocalUser;
-        IBindableList<User> IAPIProvider.Friends => Friends;
+        IBindable<APIUser> IAPIProvider.LocalUser => LocalUser;
+        IBindableList<APIUser> IAPIProvider.Friends => Friends;
         IBindable<UserActivity> IAPIProvider.Activity => Activity;
+
+        /// <summary>
+        /// During the next simulated login, the process will fail immediately.
+        /// </summary>
+        public void FailNextLogin() => shouldFailNextLogin = true;
+
+        /// <summary>
+        /// During the next simulated login, the process will pause indefinitely at "connecting".
+        /// </summary>
+        public void PauseOnConnectingNextLogin() => stayConnectingNextLogin = true;
+
+        protected override void Dispose(bool isDisposing)
+        {
+            base.Dispose(isDisposing);
+
+            // Ensure (as much as we can) that any pending tasks are run.
+            Scheduler.Update();
+        }
     }
 }

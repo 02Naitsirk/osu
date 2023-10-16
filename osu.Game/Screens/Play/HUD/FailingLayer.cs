@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -20,12 +22,14 @@ namespace osu.Game.Screens.Play.HUD
     /// <summary>
     /// An overlay layer on top of the playfield which fades to red when the current player health falls below a certain threshold defined by <see cref="low_health_threshold"/>.
     /// </summary>
-    public class FailingLayer : HealthDisplay
+    public partial class FailingLayer : HealthDisplay
     {
         /// <summary>
         /// Whether the current player health should be shown on screen.
         /// </summary>
         public readonly Bindable<bool> ShowHealth = new Bindable<bool>();
+
+        protected override bool PlayInitialIncreaseAnimation => false;
 
         private const float max_alpha = 0.4f;
         private const int fade_time = 400;
@@ -90,7 +94,7 @@ namespace osu.Game.Screens.Play.HUD
         private void updateState()
         {
             // Don't display ever if the ruleset is not using a draining health display.
-            var showLayer = HealthProcessor is DrainingHealthProcessor && fadePlayfieldWhenHealthLow.Value && ShowHealth.Value;
+            bool showLayer = HealthProcessor is DrainingHealthProcessor && fadePlayfieldWhenHealthLow.Value && ShowHealth.Value;
             this.FadeTo(showLayer ? 1 : 0, fade_time, Easing.OutQuint);
         }
 

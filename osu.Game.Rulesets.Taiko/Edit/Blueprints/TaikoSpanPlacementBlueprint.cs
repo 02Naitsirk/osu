@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using osu.Framework.Graphics;
 using osu.Framework.Input.Events;
@@ -14,7 +16,7 @@ using osuTK.Input;
 
 namespace osu.Game.Rulesets.Taiko.Edit.Blueprints
 {
-    public class TaikoSpanPlacementBlueprint : PlacementBlueprint
+    public partial class TaikoSpanPlacementBlueprint : PlacementBlueprint
     {
         private readonly HitPiece headPiece;
         private readonly HitPiece tailPiece;
@@ -22,6 +24,8 @@ namespace osu.Game.Rulesets.Taiko.Edit.Blueprints
         private readonly LengthPiece lengthPiece;
 
         private readonly IHasDuration spanPlacementObject;
+
+        protected override bool IsValidForPlacement => spanPlacementObject.Duration > 0;
 
         public TaikoSpanPlacementBlueprint(HitObject hitObject)
             : base(hitObject)
@@ -49,6 +53,12 @@ namespace osu.Game.Rulesets.Taiko.Edit.Blueprints
 
         private double originalStartTime;
         private Vector2 originalPosition;
+
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+            BeginPlacement();
+        }
 
         protected override bool OnMouseDown(MouseDownEvent e)
         {

@@ -13,13 +13,13 @@ using osuTK.Graphics;
 
 namespace osu.Game.Screens.Edit.Compose.Components
 {
-    public sealed class SelectionBoxButton : SelectionBoxControl, IHasTooltip
+    public sealed partial class SelectionBoxButton : SelectionBoxControl, IHasTooltip
     {
-        private SpriteIcon icon;
+        private SpriteIcon icon = null!;
 
         private readonly IconUsage iconUsage;
 
-        public Action Action;
+        public Action? Action;
 
         public SelectionBoxButton(IconUsage iconUsage, string tooltip)
         {
@@ -47,9 +47,11 @@ namespace osu.Game.Screens.Edit.Compose.Components
 
         protected override bool OnClick(ClickEvent e)
         {
+            Circle.FlashColour(Colours.GrayF, 300);
+
             TriggerOperationStarted();
             Action?.Invoke();
-            TriggerOperatoinEnded();
+            TriggerOperationEnded();
             return true;
         }
 

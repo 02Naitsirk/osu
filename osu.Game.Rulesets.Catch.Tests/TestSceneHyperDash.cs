@@ -15,7 +15,7 @@ using osuTK;
 namespace osu.Game.Rulesets.Catch.Tests
 {
     [TestFixture]
-    public class TestSceneHyperDash : TestSceneCatchPlayer
+    public partial class TestSceneHyperDash : TestSceneCatchPlayer
     {
         protected override bool Autoplay => true;
 
@@ -31,9 +31,9 @@ namespace osu.Game.Rulesets.Catch.Tests
                 hyperDashCount = 0;
 
                 // this needs to be done within the frame stable context due to how quickly hyperdash state changes occur.
-                Player.DrawableRuleset.FrameStableComponents.OnUpdate += d =>
+                Player.DrawableRuleset.FrameStableComponents.OnUpdate += _ =>
                 {
-                    var catcher = Player.ChildrenOfType<CatcherArea>().FirstOrDefault()?.MovableCatcher;
+                    var catcher = Player.ChildrenOfType<Catcher>().FirstOrDefault();
 
                     if (catcher == null)
                         return;
@@ -63,7 +63,7 @@ namespace osu.Game.Rulesets.Catch.Tests
                 BeatmapInfo =
                 {
                     Ruleset = ruleset,
-                    BaseDifficulty = new BeatmapDifficulty { CircleSize = 3.6f }
+                    Difficulty = new BeatmapDifficulty { CircleSize = 3.6f }
                 }
             };
 

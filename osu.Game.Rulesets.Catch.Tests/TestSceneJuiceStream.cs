@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Collections.Generic;
@@ -12,7 +12,7 @@ using osuTK;
 
 namespace osu.Game.Rulesets.Catch.Tests
 {
-    public class TestSceneJuiceStream : TestSceneCatchPlayer
+    public partial class TestSceneJuiceStream : TestSceneCatchPlayer
     {
         [Test]
         public void TestJuiceStreamEndingCombo()
@@ -24,7 +24,7 @@ namespace osu.Game.Rulesets.Catch.Tests
         {
             BeatmapInfo = new BeatmapInfo
             {
-                BaseDifficulty = new BeatmapDifficulty { CircleSize = 5, SliderMultiplier = 2 },
+                Difficulty = new BeatmapDifficulty { CircleSize = 5, SliderMultiplier = 2 },
                 Ruleset = ruleset
             },
             HitObjects = new List<HitObject>

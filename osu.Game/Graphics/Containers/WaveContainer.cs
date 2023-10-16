@@ -2,6 +2,9 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using osu.Framework.Allocation;
+using osu.Framework.Audio;
+using osu.Framework.Audio.Sample;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -11,10 +14,11 @@ using osuTK.Graphics;
 
 namespace osu.Game.Graphics.Containers
 {
-    public class WaveContainer : VisibilityContainer
+    public partial class WaveContainer : VisibilityContainer
     {
         public const float APPEAR_DURATION = 800;
         public const float DISAPPEAR_DURATION = 500;
+        public const float SHADOW_OPACITY = 0.2f;
 
         private const Easing easing_show = Easing.OutSine;
         private const Easing easing_hide = Easing.InSine;
@@ -30,6 +34,12 @@ namespace osu.Game.Graphics.Containers
         protected override Container<Drawable> Content => contentContainer;
 
         protected override bool StartHidden => true;
+
+        private Sample? samplePopIn;
+        private Sample? samplePopOut;
+
+        // required due to LoadAsyncComplete() in `VisibilityContainer` calling PopOut() during load - similar workaround to `OsuDropdownMenu`
+        private bool wasShown;
 
         public Color4 FirstWaveColour
         {
@@ -53,6 +63,13 @@ namespace osu.Game.Graphics.Containers
         {
             get => fourthWave.Colour;
             set => fourthWave.Colour = value;
+        }
+
+        [BackgroundDependencyLoader(true)]
+        private void load(AudioManager audio)
+        {
+            samplePopIn = audio.Samples.Get("UI/wave-pop-in");
+            samplePopOut = audio.Samples.Get("UI/overlay-big-pop-out");
         }
 
         public WaveContainer()
@@ -109,6 +126,8 @@ namespace osu.Game.Graphics.Containers
                 w.Show();
 
             contentContainer.MoveToY(0, APPEAR_DURATION, Easing.OutQuint);
+            samplePopIn?.Play();
+            wasShown = true;
         }
 
         protected override void PopOut()
@@ -117,6 +136,9 @@ namespace osu.Game.Graphics.Containers
                 w.Hide();
 
             contentContainer.MoveToY(2, DISAPPEAR_DURATION, Easing.In);
+
+            if (wasShown)
+                samplePopOut?.Play();
         }
 
         protected override void UpdateAfterChildren()
@@ -129,7 +151,7 @@ namespace osu.Game.Graphics.Containers
             wavesContainer.Height = Math.Max(0, DrawHeight - (contentContainer.DrawHeight - contentContainer.Y * DrawHeight));
         }
 
-        private class Wave : VisibilityContainer
+        private partial class Wave : VisibilityContainer
         {
             public float FinalPosition;
 

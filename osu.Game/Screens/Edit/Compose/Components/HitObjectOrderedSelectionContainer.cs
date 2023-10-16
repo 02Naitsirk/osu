@@ -1,83 +1,75 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System.Collections.Generic;
-using osu.Framework.Bindables;
+using osu.Framework.Allocation;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Game.Rulesets.Edit;
 using osu.Game.Rulesets.Objects;
+using osu.Game.Rulesets.Objects.Types;
 
 namespace osu.Game.Screens.Edit.Compose.Components
 {
     /// <summary>
     /// A container for <see cref="SelectionBlueprint{HitObject}"/> ordered by their <see cref="HitObject"/> start times.
     /// </summary>
-    public sealed class HitObjectOrderedSelectionContainer : Container<SelectionBlueprint<HitObject>>
+    public sealed partial class HitObjectOrderedSelectionContainer : Container<SelectionBlueprint<HitObject>>
     {
+        [Resolved]
+        private EditorBeatmap editorBeatmap { get; set; } = null!;
+
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+
+            editorBeatmap.BeatmapReprocessed += SortInternal;
+        }
+
         public override void Add(SelectionBlueprint<HitObject> drawable)
         {
+            SortInternal();
             base.Add(drawable);
-            bindStartTime(drawable);
         }
 
-        public override bool Remove(SelectionBlueprint<HitObject> drawable)
+        public override bool Remove(SelectionBlueprint<HitObject> drawable, bool disposeImmediately)
         {
-            if (!base.Remove(drawable))
-                return false;
-
-            unbindStartTime(drawable);
-            return true;
-        }
-
-        public override void Clear(bool disposeChildren)
-        {
-            base.Clear(disposeChildren);
-            unbindAllStartTimes();
-        }
-
-        private readonly Dictionary<SelectionBlueprint<HitObject>, IBindable> startTimeMap = new Dictionary<SelectionBlueprint<HitObject>, IBindable>();
-
-        private void bindStartTime(SelectionBlueprint<HitObject> blueprint)
-        {
-            var bindable = blueprint.Item.StartTimeBindable.GetBoundCopy();
-
-            bindable.BindValueChanged(_ =>
-            {
-                if (LoadState >= LoadState.Ready)
-                    SortInternal();
-            });
-
-            startTimeMap[blueprint] = bindable;
-        }
-
-        private void unbindStartTime(SelectionBlueprint<HitObject> blueprint)
-        {
-            startTimeMap[blueprint].UnbindAll();
-            startTimeMap.Remove(blueprint);
-        }
-
-        private void unbindAllStartTimes()
-        {
-            foreach (var kvp in startTimeMap)
-                kvp.Value.UnbindAll();
-            startTimeMap.Clear();
+            SortInternal();
+            return base.Remove(drawable, disposeImmediately);
         }
 
         protected override int Compare(Drawable x, Drawable y)
         {
-            var xObj = (SelectionBlueprint<HitObject>)x;
-            var yObj = (SelectionBlueprint<HitObject>)y;
+            var xObj = ((SelectionBlueprint<HitObject>)x).Item;
+            var yObj = ((SelectionBlueprint<HitObject>)y).Item;
 
             // Put earlier blueprints towards the end of the list, so they handle input first
-            int i = yObj.Item.StartTime.CompareTo(xObj.Item.StartTime);
-
-            if (i != 0) return i;
+            int result = yObj.StartTime.CompareTo(xObj.StartTime);
+            if (result != 0) return result;
 
             // Fall back to end time if the start time is equal.
-            i = yObj.Item.GetEndTime().CompareTo(xObj.Item.GetEndTime());
+            result = yObj.GetEndTime().CompareTo(xObj.GetEndTime());
+            if (result != 0) return result;
 
-            return i == 0 ? CompareReverseChildID(y, x) : i;
+            // As a final fallback, use combo information if available.
+            if (xObj is IHasComboInformation xHasCombo && yObj is IHasComboInformation yHasCombo)
+            {
+                result = yHasCombo.ComboIndex.CompareTo(xHasCombo.ComboIndex);
+                if (result != 0) return result;
+
+                result = yHasCombo.IndexInCurrentCombo.CompareTo(xHasCombo.IndexInCurrentCombo);
+                if (result != 0) return result;
+            }
+
+            return CompareReverseChildID(x, y);
+        }
+
+        protected override void Dispose(bool isDisposing)
+        {
+            base.Dispose(isDisposing);
+
+            if (editorBeatmap.IsNotNull())
+                editorBeatmap.BeatmapReprocessed -= SortInternal;
         }
     }
 }

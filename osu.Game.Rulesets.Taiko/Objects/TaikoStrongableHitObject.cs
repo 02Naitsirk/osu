@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Linq;
@@ -17,7 +17,7 @@ namespace osu.Game.Rulesets.Taiko.Objects
         /// <summary>
         /// Scale multiplier for a strong drawable taiko hit object.
         /// </summary>
-        public const float STRONG_SCALE = 1.4f;
+        public const float STRONG_SCALE = 1 / 0.65f;
 
         /// <summary>
         /// Default size of a strong drawable taiko hit object.
@@ -39,7 +39,7 @@ namespace osu.Game.Rulesets.Taiko.Objects
         protected TaikoStrongableHitObject()
         {
             IsStrongBindable.BindValueChanged(_ => updateSamplesFromType());
-            SamplesBindable.BindCollectionChanged((_, __) => updateTypeFromSamples());
+            SamplesBindable.BindCollectionChanged((_, _) => updateTypeFromSamples());
         }
 
         private void updateTypeFromSamples()
@@ -54,7 +54,7 @@ namespace osu.Game.Rulesets.Taiko.Objects
             if (IsStrongBindable.Value != strongSamples.Any())
             {
                 if (IsStrongBindable.Value)
-                    Samples.Add(new HitSampleInfo(HitSampleInfo.HIT_FINISH));
+                    Samples.Add(CreateHitSampleInfo(HitSampleInfo.HIT_FINISH));
                 else
                 {
                     foreach (var sample in strongSamples)

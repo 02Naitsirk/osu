@@ -1,103 +1,92 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Framework.Graphics.Textures;
+using osu.Framework.Graphics.Sprites;
 using osu.Game.Graphics;
 using osu.Game.Graphics.Sprites;
 using osu.Game.Rulesets.Objects.Drawables;
 using osu.Game.Rulesets.Osu.Objects;
 using osu.Game.Rulesets.Osu.Objects.Drawables;
 using osu.Game.Skinning;
-using osuTK;
 using osuTK.Graphics;
-using static osu.Game.Skinning.LegacySkinConfiguration;
 
 namespace osu.Game.Rulesets.Osu.Skinning.Legacy
 {
-    public class LegacyMainCirclePiece : CompositeDrawable
+    public partial class LegacyMainCirclePiece : CompositeDrawable
     {
         public override bool RemoveCompletedTransforms => false;
 
-        private readonly string priorityLookup;
+        /// <summary>
+        /// A prioritised prefix to perform texture lookups with.
+        /// </summary>
+        private readonly string? priorityLookupPrefix;
+
         private readonly bool hasNumber;
 
-        public LegacyMainCirclePiece(string priorityLookup = null, bool hasNumber = true)
-        {
-            this.priorityLookup = priorityLookup;
-            this.hasNumber = hasNumber;
+        protected LegacyKiaiFlashingDrawable CircleSprite = null!;
+        protected LegacyKiaiFlashingDrawable OverlaySprite = null!;
 
-            Size = new Vector2(OsuHitObject.OBJECT_RADIUS * 2);
-        }
+        protected Container OverlayLayer { get; private set; } = null!;
 
-        private Container circleSprites;
-        private Drawable hitCircleSprite;
-        private Drawable hitCircleOverlay;
-
-        private SkinnableSpriteText hitCircleText;
+        private SkinnableSpriteText hitCircleText = null!;
 
         private readonly Bindable<Color4> accentColour = new Bindable<Color4>();
         private readonly IBindable<int> indexInCurrentCombo = new Bindable<int>();
 
-        [Resolved]
-        private DrawableHitObject drawableObject { get; set; }
+        [Resolved(canBeNull: true)] // Can't really be null but required to handle potential of disposal before DI completes.
+        private DrawableHitObject? drawableObject { get; set; }
 
         [Resolved]
-        private ISkinSource skin { get; set; }
+        private ISkinSource skin { get; set; } = null!;
+
+        public LegacyMainCirclePiece(string? priorityLookupPrefix = null, bool hasNumber = true)
+        {
+            this.priorityLookupPrefix = priorityLookupPrefix;
+            this.hasNumber = hasNumber;
+
+            Size = OsuHitObject.OBJECT_DIMENSIONS;
+        }
 
         [BackgroundDependencyLoader]
         private void load()
         {
-            var drawableOsuObject = (DrawableOsuHitObject)drawableObject;
+            var drawableOsuObject = (DrawableOsuHitObject?)drawableObject;
 
-            bool allowFallback = false;
-
-            // attempt lookup using priority specification
-            Texture baseTexture = getTextureWithFallback(string.Empty);
-
-            // if the base texture was not found without a fallback, switch on fallback mode and re-perform the lookup.
-            if (baseTexture == null)
-            {
-                allowFallback = true;
-                baseTexture = getTextureWithFallback(string.Empty);
-            }
+            // if a base texture for the specified prefix exists, continue using it for subsequent lookups.
+            // otherwise fall back to the default prefix "hitcircle".
+            string circleName = (priorityLookupPrefix != null && skin.GetTexture(priorityLookupPrefix) != null) ? priorityLookupPrefix : @"hitcircle";
 
             // at this point, any further texture fetches should be correctly using the priority source if the base texture was retrieved using it.
-            // the flow above handles the case where a sliderendcircle.png is retrieved from the skin, but sliderendcircleoverlay.png doesn't exist.
-            // expected behaviour in this scenario is not showing the overlay, rather than using hitcircleoverlay.png (potentially from the default/fall-through skin).
-            Texture overlayTexture = getTextureWithFallback("overlay");
-
-            InternalChildren = new Drawable[]
+            // the conditional above handles the case where a sliderendcircle.png is retrieved from the skin, but sliderendcircleoverlay.png doesn't exist.
+            // expected behaviour in this scenario is not showing the overlay, rather than using hitcircleoverlay.png.
+            InternalChildren = new[]
             {
-                circleSprites = new Container
+                CircleSprite = new LegacyKiaiFlashingDrawable(() => new Sprite { Texture = skin.GetTexture(circleName)?.WithMaximumSize(OsuHitObject.OBJECT_DIMENSIONS * 2) })
                 {
                     Anchor = Anchor.Centre,
                     Origin = Anchor.Centre,
-                    RelativeSizeAxes = Axes.Both,
-                    Children = new[]
-                    {
-                        hitCircleSprite = new KiaiFlashingSprite
-                        {
-                            Texture = baseTexture,
-                            Anchor = Anchor.Centre,
-                            Origin = Anchor.Centre,
-                        },
-                        hitCircleOverlay = new KiaiFlashingSprite
-                        {
-                            Texture = overlayTexture,
-                            Anchor = Anchor.Centre,
-                            Origin = Anchor.Centre,
-                        }
-                    }
                 },
+                OverlayLayer = new Container
+                {
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.Centre,
+                    Child = OverlaySprite = new LegacyKiaiFlashingDrawable(() => skin.GetAnimation(@$"{circleName}overlay", true, true, frameLength: 1000 / 2d, maxSize: OsuHitObject.OBJECT_DIMENSIONS * 2))
+                    {
+                        Anchor = Anchor.Centre,
+                        Origin = Anchor.Centre,
+                    },
+                }
             };
 
             if (hasNumber)
             {
-                AddInternal(hitCircleText = new SkinnableSpriteText(new OsuSkinComponent(OsuSkinComponents.HitCircleText), _ => new OsuSpriteText
+                OverlayLayer.Add(hitCircleText = new SkinnableSpriteText(new OsuSkinComponentLookup(OsuSkinComponents.HitCircleText), _ => new OsuSpriteText
                 {
                     Font = OsuFont.Numeric.With(size: 40),
                     UseFullGlyphHeight = false,
@@ -111,24 +100,12 @@ namespace osu.Game.Rulesets.Osu.Skinning.Legacy
             bool overlayAboveNumber = skin.GetConfig<OsuSkinConfiguration, bool>(OsuSkinConfiguration.HitCircleOverlayAboveNumber)?.Value ?? true;
 
             if (overlayAboveNumber)
-                AddInternal(hitCircleOverlay.CreateProxy());
+                OverlayLayer.ChangeChildDepth(OverlaySprite, float.MinValue);
 
-            accentColour.BindTo(drawableObject.AccentColour);
-            indexInCurrentCombo.BindTo(drawableOsuObject.IndexInCurrentComboBindable);
-
-            Texture getTextureWithFallback(string name)
+            if (drawableOsuObject != null)
             {
-                Texture tex = null;
-
-                if (!string.IsNullOrEmpty(priorityLookup))
-                {
-                    tex = skin.GetTexture($"{priorityLookup}{name}");
-
-                    if (!allowFallback)
-                        return tex;
-                }
-
-                return tex ?? skin.GetTexture($"hitcircle{name}");
+                accentColour.BindTo(drawableOsuObject.AccentColour);
+                indexInCurrentCombo.BindTo(drawableOsuObject.IndexInCurrentComboBindable);
             }
         }
 
@@ -136,37 +113,57 @@ namespace osu.Game.Rulesets.Osu.Skinning.Legacy
         {
             base.LoadComplete();
 
-            accentColour.BindValueChanged(colour => hitCircleSprite.Colour = LegacyColourCompatibility.DisallowZeroAlpha(colour.NewValue), true);
+            accentColour.BindValueChanged(colour =>
+            {
+                Color4 objectColour = colour.NewValue;
+                int add = Math.Max(25, 300 - (int)(objectColour.R * 255) - (int)(objectColour.G * 255) - (int)(objectColour.B * 255));
+
+                var kiaiTintColour = new Color4(
+                    (byte)Math.Min((byte)(objectColour.R * 255) + add, 255),
+                    (byte)Math.Min((byte)(objectColour.G * 255) + add, 255),
+                    (byte)Math.Min((byte)(objectColour.B * 255) + add, 255),
+                    255);
+
+                CircleSprite.Colour = LegacyColourCompatibility.DisallowZeroAlpha(colour.NewValue);
+                OverlaySprite.KiaiGlowColour = CircleSprite.KiaiGlowColour = LegacyColourCompatibility.DisallowZeroAlpha(kiaiTintColour);
+            }, true);
+
             if (hasNumber)
                 indexInCurrentCombo.BindValueChanged(index => hitCircleText.Text = (index.NewValue + 1).ToString(), true);
 
-            drawableObject.ApplyCustomUpdateState += updateStateTransforms;
-            updateStateTransforms(drawableObject, drawableObject.State.Value);
+            if (drawableObject != null)
+            {
+                drawableObject.ApplyCustomUpdateState += updateStateTransforms;
+                updateStateTransforms(drawableObject, drawableObject.State.Value);
+            }
         }
 
         private void updateStateTransforms(DrawableHitObject drawableHitObject, ArmedState state)
         {
             const double legacy_fade_duration = 240;
 
-            using (BeginAbsoluteSequence(drawableObject.HitStateUpdateTime))
+            using (BeginAbsoluteSequence(drawableObject.AsNonNull().HitStateUpdateTime))
             {
                 switch (state)
                 {
                     case ArmedState.Hit:
-                        circleSprites.FadeOut(legacy_fade_duration, Easing.Out);
-                        circleSprites.ScaleTo(1.4f, legacy_fade_duration, Easing.Out);
+                        CircleSprite.FadeOut(legacy_fade_duration);
+                        CircleSprite.ScaleTo(1.4f, legacy_fade_duration, Easing.Out);
+
+                        OverlaySprite.FadeOut(legacy_fade_duration);
+                        OverlaySprite.ScaleTo(1.4f, legacy_fade_duration, Easing.Out);
 
                         if (hasNumber)
                         {
-                            var legacyVersion = skin.GetConfig<LegacySetting, decimal>(LegacySetting.Version)?.Value;
+                            decimal? legacyVersion = skin.GetConfig<SkinConfiguration.LegacySetting, decimal>(SkinConfiguration.LegacySetting.Version)?.Value;
 
                             if (legacyVersion >= 2.0m)
                                 // legacy skins of version 2.0 and newer only apply very short fade out to the number piece.
-                                hitCircleText.FadeOut(legacy_fade_duration / 4, Easing.Out);
+                                hitCircleText.FadeOut(legacy_fade_duration / 4);
                             else
                             {
                                 // old skins scale and fade it normally along other pieces.
-                                hitCircleText.FadeOut(legacy_fade_duration, Easing.Out);
+                                hitCircleText.FadeOut(legacy_fade_duration);
                                 hitCircleText.ScaleTo(1.4f, legacy_fade_duration, Easing.Out);
                             }
                         }

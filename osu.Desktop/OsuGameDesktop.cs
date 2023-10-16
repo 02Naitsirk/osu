@@ -2,47 +2,44 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.Versioning;
-using System.Threading.Tasks;
 using Microsoft.Win32;
 using osu.Desktop.Security;
-using osu.Desktop.Overlays;
 using osu.Framework.Platform;
 using osu.Game;
 using osu.Desktop.Updater;
 using osu.Framework;
 using osu.Framework.Logging;
-using osu.Framework.Screens;
-using osu.Game.Screens.Menu;
 using osu.Game.Updater;
 using osu.Desktop.Windows;
-using osu.Framework.Threading;
 using osu.Game.IO;
+using osu.Game.IPC;
+using osu.Game.Online.Multiplayer;
+using osu.Game.Utils;
+using SDL2;
 
 namespace osu.Desktop
 {
-    internal class OsuGameDesktop : OsuGame
+    internal partial class OsuGameDesktop : OsuGame
     {
-        private readonly bool noVersionOverlay;
-        private VersionManager versionManager;
+        private OsuSchemeLinkIPCChannel? osuSchemeLinkIPCChannel;
+        private ArchiveImportIPCChannel? archiveImportIPCChannel;
 
-        public OsuGameDesktop(string[] args = null)
+        public OsuGameDesktop(string[]? args = null)
             : base(args)
         {
-            noVersionOverlay = args?.Any(a => a == "--no-version-overlay") ?? false;
         }
 
-        public override StableStorage GetStorageForStableInstall()
+        public override StableStorage? GetStorageForStableInstall()
         {
             try
             {
                 if (Host is DesktopGameHost desktopHost)
                 {
-                    string stablePath = getStableInstallPath();
+                    string? stablePath = getStableInstallPath();
                     if (!string.IsNullOrEmpty(stablePath))
                         return new StableStorage(stablePath, desktopHost);
                 }
@@ -55,11 +52,11 @@ namespace osu.Desktop
             return null;
         }
 
-        private string getStableInstallPath()
+        private string? getStableInstallPath()
         {
             static bool checkExists(string p) => Directory.Exists(Path.Combine(p, "Songs")) || File.Exists(Path.Combine(p, "osu!.cfg"));
 
-            string stableInstallPath;
+            string? stableInstallPath;
 
             if (OperatingSystem.IsWindows())
             {
@@ -70,7 +67,9 @@ namespace osu.Desktop
                     if (!string.IsNullOrEmpty(stableInstallPath) && checkExists(stableInstallPath))
                         return stableInstallPath;
                 }
-                catch { }
+                catch
+                {
+                }
             }
 
             stableInstallPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"osu!");
@@ -85,17 +84,24 @@ namespace osu.Desktop
         }
 
         [SupportedOSPlatform("windows")]
-        private string getStableInstallPathFromRegistry()
+        private string? getStableInstallPathFromRegistry()
         {
-            using (RegistryKey key = Registry.ClassesRoot.OpenSubKey("osu"))
+            using (RegistryKey? key = Registry.ClassesRoot.OpenSubKey("osu"))
                 return key?.OpenSubKey(@"shell\open\command")?.GetValue(string.Empty)?.ToString()?.Split('"')[1].Replace("osu!.exe", "");
         }
 
         protected override UpdateManager CreateUpdateManager()
         {
+            string? packageManaged = Environment.GetEnvironmentVariable("OSU_EXTERNAL_UPDATE_PROVIDER");
+
+            if (!string.IsNullOrEmpty(packageManaged))
+                return new NoActionUpdateManager();
+
             switch (RuntimeInfo.OS)
             {
                 case RuntimeInfo.Platform.Windows:
+                    Debug.Assert(OperatingSystem.IsWindows());
+
                     return new SquirrelUpdateManager();
 
                 default:
@@ -103,12 +109,28 @@ namespace osu.Desktop
             }
         }
 
+        public override bool RestartAppWhenExited()
+        {
+            switch (RuntimeInfo.OS)
+            {
+                case RuntimeInfo.Platform.Windows:
+                    Debug.Assert(OperatingSystem.IsWindows());
+
+                    // Of note, this is an async method in squirrel that adds an arbitrary delay before returning
+                    // likely to ensure the external process is in a good state.
+                    //
+                    // We're not waiting on that here, but the outro playing before the actual exit should be enough
+                    // to cover this.
+                    Squirrel.UpdateManager.RestartAppWhenExited().FireAndForget();
+                    return true;
+            }
+
+            return base.RestartAppWhenExited();
+        }
+
         protected override void LoadComplete()
         {
             base.LoadComplete();
-
-            if (!noVersionOverlay)
-                LoadComponentAsync(versionManager = new VersionManager { Depth = int.MinValue }, Add);
 
             LoadComponentAsync(new DiscordRichPresence(), Add);
 
@@ -116,23 +138,9 @@ namespace osu.Desktop
                 LoadComponentAsync(new GameplayWinKeyBlocker(), Add);
 
             LoadComponentAsync(new ElevatedPrivilegesChecker(), Add);
-        }
 
-        protected override void ScreenChanged(IScreen lastScreen, IScreen newScreen)
-        {
-            base.ScreenChanged(lastScreen, newScreen);
-
-            switch (newScreen)
-            {
-                case IntroScreen _:
-                case MainMenu _:
-                    versionManager?.Show();
-                    break;
-
-                default:
-                    versionManager?.Hide();
-                    break;
-            }
+            osuSchemeLinkIPCChannel = new OsuSchemeLinkIPCChannel(Host, this);
+            archiveImportIPCChannel = new ArchiveImportIPCChannel(Host, this);
         }
 
         public override void SetHost(GameHost host)
@@ -140,48 +148,38 @@ namespace osu.Desktop
             base.SetHost(host);
 
             var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(GetType(), "lazer.ico");
+            if (iconStream != null)
+                host.Window.SetIconFromStream(iconStream);
 
-            var desktopWindow = (SDL2DesktopWindow)host.Window;
-
-            desktopWindow.CursorState |= CursorState.Hidden;
-            desktopWindow.SetIconFromStream(iconStream);
-            desktopWindow.Title = Name;
-            desktopWindow.DragDrop += f => fileDrop(new[] { f });
+            host.Window.CursorState |= CursorState.Hidden;
+            host.Window.Title = Name;
         }
 
-        private readonly List<string> importableFiles = new List<string>();
-        private ScheduledDelegate importSchedule;
+        protected override BatteryInfo CreateBatteryInfo() => new SDL2BatteryInfo();
 
-        private void fileDrop(string[] filePaths)
+        protected override void Dispose(bool isDisposing)
         {
-            lock (importableFiles)
-            {
-                var firstExtension = Path.GetExtension(filePaths.First());
-
-                if (filePaths.Any(f => Path.GetExtension(f) != firstExtension)) return;
-
-                importableFiles.AddRange(filePaths);
-
-                Logger.Log($"Adding {filePaths.Length} files for import");
-
-                // File drag drop operations can potentially trigger hundreds or thousands of these calls on some platforms.
-                // In order to avoid spawning multiple import tasks for a single drop operation, debounce a touch.
-                importSchedule?.Cancel();
-                importSchedule = Scheduler.AddDelayed(handlePendingImports, 100);
-            }
+            base.Dispose(isDisposing);
+            osuSchemeLinkIPCChannel?.Dispose();
+            archiveImportIPCChannel?.Dispose();
         }
 
-        private void handlePendingImports()
+        private class SDL2BatteryInfo : BatteryInfo
         {
-            lock (importableFiles)
+            public override double? ChargeLevel
             {
-                Logger.Log($"Handling batch import of {importableFiles.Count} files");
+                get
+                {
+                    SDL.SDL_GetPowerInfo(out _, out int percentage);
 
-                var paths = importableFiles.ToArray();
-                importableFiles.Clear();
+                    if (percentage == -1)
+                        return null;
 
-                Task.Factory.StartNew(() => Import(paths), TaskCreationOptions.LongRunning);
+                    return percentage / 100.0;
+                }
             }
+
+            public override bool OnBattery => SDL.SDL_GetPowerInfo(out _, out _) == SDL.SDL_PowerState.SDL_POWERSTATE_ON_BATTERY;
         }
     }
 }

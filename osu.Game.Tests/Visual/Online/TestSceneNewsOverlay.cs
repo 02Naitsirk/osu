@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using System.Linq;
 using NUnit.Framework;
@@ -13,7 +15,7 @@ using osu.Game.Overlays;
 
 namespace osu.Game.Tests.Visual.Online
 {
-    public class TestSceneNewsOverlay : OsuTestScene
+    public partial class TestSceneNewsOverlay : OsuTestScene
     {
         private DummyAPIAccess dummyAPI => (DummyAPIAccess)API;
 
@@ -37,7 +39,7 @@ namespace osu.Game.Tests.Visual.Online
             AddStep("Show", () => overlay.Show());
             AddUntilStep("Show More button is visible", () => showMoreButton?.Alpha == 1);
             setUpNewsResponse(responseWithNoCursor, "Set up no cursor response");
-            AddStep("Click Show More", () => showMoreButton?.Click());
+            AddStep("Click Show More", () => showMoreButton?.TriggerClick());
             AddUntilStep("Show More button is hidden", () => showMoreButton?.Alpha == 0);
         }
 

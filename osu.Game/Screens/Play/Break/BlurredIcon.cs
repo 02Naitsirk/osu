@@ -10,7 +10,7 @@ using osuTK;
 
 namespace osu.Game.Screens.Play.Break
 {
-    public class BlurredIcon : BufferedContainer
+    public partial class BlurredIcon : BufferedContainer
     {
         private readonly SpriteIcon icon;
 
@@ -25,16 +25,16 @@ namespace osu.Game.Screens.Play.Break
             set
             {
                 icon.Size = value;
-                base.Size = value + BlurSigma * 2.5f;
+                base.Size = value + BlurSigma * 5;
                 ForceRedraw();
             }
             get => base.Size;
         }
 
         public BlurredIcon()
+            : base(cachedFrameBuffer: true)
         {
             RelativePositionAxes = Axes.X;
-            CacheDrawnFrameBuffer = true;
             Child = icon = new SpriteIcon
             {
                 Origin = Anchor.Centre,

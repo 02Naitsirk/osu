@@ -7,7 +7,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Bindings;
-using osu.Game.Rulesets.Taiko.Audio;
+using osu.Framework.Input.Events;
 using osu.Game.Skinning;
 using osuTK;
 
@@ -16,15 +16,16 @@ namespace osu.Game.Rulesets.Taiko.Skinning.Legacy
     /// <summary>
     /// A component of the playfield that captures input and displays input as a drum.
     /// </summary>
-    internal class LegacyInputDrum : Container
+    internal partial class LegacyInputDrum : Container
     {
-        private LegacyHalfDrum left;
-        private LegacyHalfDrum right;
-        private Container content;
+        private Container content = null!;
+        private LegacyHalfDrum left = null!;
+        private LegacyHalfDrum right = null!;
 
         public LegacyInputDrum()
         {
-            RelativeSizeAxes = Axes.Both;
+            RelativeSizeAxes = Axes.Y;
+            AutoSizeAxes = Axes.X;
         }
 
         [BackgroundDependencyLoader]
@@ -67,7 +68,7 @@ namespace osu.Game.Rulesets.Taiko.Skinning.Legacy
             // because the right half is flipped, we need to position using width - position to get the true "topleft" origin position
             float negativeScaleAdjust = content.Width / ratio;
 
-            if (skin.GetConfig<LegacySkinConfiguration.LegacySetting, decimal>(LegacySkinConfiguration.LegacySetting.Version)?.Value >= 2.1m)
+            if (skin.GetConfig<SkinConfiguration.LegacySetting, decimal>(SkinConfiguration.LegacySetting.Version)?.Value >= 2.1m)
             {
                 left.Centre.Position = new Vector2(0, taiko_bar_y) * ratio;
                 right.Centre.Position = new Vector2(negativeScaleAdjust - 56, taiko_bar_y) * ratio;
@@ -95,7 +96,7 @@ namespace osu.Game.Rulesets.Taiko.Skinning.Legacy
         /// <summary>
         /// A half-drum. Contains one centre and one rim hit.
         /// </summary>
-        private class LegacyHalfDrum : Container, IKeyBindingHandler<TaikoAction>
+        private partial class LegacyHalfDrum : Container, IKeyBindingHandler<TaikoAction>
         {
             /// <summary>
             /// The key to be used for the rim of the half-drum.
@@ -109,9 +110,6 @@ namespace osu.Game.Rulesets.Taiko.Skinning.Legacy
 
             public readonly Sprite Rim;
             public readonly Sprite Centre;
-
-            [Resolved]
-            private DrumSampleContainer sampleContainer { get; set; }
 
             public LegacyHalfDrum(bool flipped)
             {
@@ -140,20 +138,17 @@ namespace osu.Game.Rulesets.Taiko.Skinning.Legacy
                 Centre.Texture = skin.GetTexture(@"taiko-drum-inner");
             }
 
-            public bool OnPressed(TaikoAction action)
+            public bool OnPressed(KeyBindingPressEvent<TaikoAction> e)
             {
-                Drawable target = null;
-                var drumSample = sampleContainer.SampleAt(Time.Current);
+                Drawable? target = null;
 
-                if (action == CentreAction)
+                if (e.Action == CentreAction)
                 {
                     target = Centre;
-                    drumSample.Centre?.Play();
                 }
-                else if (action == RimAction)
+                else if (e.Action == RimAction)
                 {
                     target = Rim;
-                    drumSample.Rim?.Play();
                 }
 
                 if (target != null)
@@ -173,7 +168,7 @@ namespace osu.Game.Rulesets.Taiko.Skinning.Legacy
                 return false;
             }
 
-            public void OnReleased(TaikoAction action)
+            public void OnReleased(KeyBindingReleaseEvent<TaikoAction> e)
             {
             }
         }

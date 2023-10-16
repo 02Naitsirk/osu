@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
@@ -7,18 +7,14 @@ using osu.Framework.Allocation;
 using osu.Game.Rulesets.Edit;
 using osu.Game.Rulesets.Mania.Objects;
 using osu.Game.Rulesets.Objects;
-using osu.Game.Rulesets.UI.Scrolling;
 using osu.Game.Screens.Edit.Compose.Components;
 
 namespace osu.Game.Rulesets.Mania.Edit
 {
-    public class ManiaSelectionHandler : EditorSelectionHandler
+    public partial class ManiaSelectionHandler : EditorSelectionHandler
     {
         [Resolved]
-        private IScrollingInfo scrollingInfo { get; set; }
-
-        [Resolved]
-        private HitObjectComposer composer { get; set; }
+        private HitObjectComposer composer { get; set; } = null!;
 
         public override bool HandleMovement(MoveSelectionEvent<HitObject> moveEvent)
         {

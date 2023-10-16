@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -15,10 +17,11 @@ using osu.Game.Overlays.Settings;
 using osu.Game.Screens.Menu;
 using osuTK;
 using osuTK.Graphics;
+using osu.Game.Localisation;
 
 namespace osu.Game.Overlays.AccountCreation
 {
-    public class ScreenWarning : AccountCreationScreen
+    public partial class ScreenWarning : AccountCreationScreen
     {
         private OsuTextFlowContainer multiAccountExplanationText;
         private LinkFlowContainer furtherAssistance;
@@ -31,7 +34,7 @@ namespace osu.Game.Overlays.AccountCreation
 
         private const string help_centre_url = "/help/wiki/Help_Centre#login";
 
-        public override void OnEntering(IScreen last)
+        public override void OnEntering(ScreenTransitionEvent e)
         {
             if (string.IsNullOrEmpty(api?.ProvidedUsername) || game?.UseDevelopmentServer == true)
             {
@@ -40,7 +43,7 @@ namespace osu.Game.Overlays.AccountCreation
                 return;
             }
 
-            base.OnEntering(last);
+            base.OnEntering(e);
         }
 
         [BackgroundDependencyLoader(true)]
@@ -99,13 +102,13 @@ namespace osu.Game.Overlays.AccountCreation
                         },
                         new SettingsButton
                         {
-                            Text = "Help, I can't access my account!",
+                            Text = AccountCreationStrings.MultiAccountWarningHelp,
                             Margin = new MarginPadding { Top = 50 },
                             Action = () => game?.OpenUrlExternally(help_centre_url)
                         },
                         new DangerousSettingsButton
                         {
-                            Text = "I understand. This account isn't for me.",
+                            Text = AccountCreationStrings.MultiAccountWarningAccept,
                             Action = () => this.Push(new ScreenEntry())
                         },
                         furtherAssistance = new LinkFlowContainer(cp => cp.Font = cp.Font.With(size: 12))

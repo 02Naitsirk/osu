@@ -2,9 +2,10 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.RegularExpressions;
-using osu.Game.Beatmaps;
 using osu.Game.Screens.Select.Filter;
 
 namespace osu.Game.Screens.Select
@@ -15,16 +16,16 @@ namespace osu.Game.Screens.Select
     public static class FilterQueryParser
     {
         private static readonly Regex query_syntax_regex = new Regex(
-            @"\b(?<key>\w+)(?<op>(:|=|(>|<)(:|=)?))(?<value>("".*"")|(\S*))",
+            @"\b(?<key>\w+)(?<op>(:|=|(>|<)(:|=)?))(?<value>("".*""[!]?)|(\S*))",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         internal static void ApplyQueries(FilterCriteria criteria, string query)
         {
             foreach (Match match in query_syntax_regex.Matches(query))
             {
-                var key = match.Groups["key"].Value.ToLower();
+                string key = match.Groups["key"].Value.ToLowerInvariant();
                 var op = parseOperator(match.Groups["op"].Value);
-                var value = match.Groups["value"].Value;
+                string value = match.Groups["value"].Value;
 
                 if (tryParseKeywordCriteria(criteria, key, value, op))
                     query = query.Replace(match.ToString(), "");
@@ -64,14 +65,16 @@ namespace osu.Game.Screens.Select
                     return TryUpdateCriteriaRange(ref criteria.BeatDivisor, op, value, tryParseInt);
 
                 case "status":
-                    return TryUpdateCriteriaRange(ref criteria.OnlineStatus, op, value,
-                        (string s, out BeatmapSetOnlineStatus val) => Enum.TryParse(value, true, out val));
+                    return TryUpdateCriteriaRange(ref criteria.OnlineStatus, op, value, tryParseEnum);
 
                 case "creator":
                     return TryUpdateCriteriaText(ref criteria.Creator, op, value);
 
                 case "artist":
                     return TryUpdateCriteriaText(ref criteria.Artist, op, value);
+
+                case "title":
+                    return TryUpdateCriteriaText(ref criteria.Title, op, value);
 
                 default:
                     return criteria.RulesetCriteria?.TryParseCustomKeywordCriteria(key, op, value) ?? false;
@@ -120,6 +123,31 @@ namespace osu.Game.Screens.Select
         private static bool tryParseInt(string value, out int result) =>
             int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out result);
 
+        private static bool tryParseEnum<TEnum>(string value, out TEnum result) where TEnum : struct
+        {
+            // First try an exact match.
+            if (Enum.TryParse(value, true, out result))
+                return true;
+
+            // Then try a prefix match.
+            string? prefixMatch = Enum.GetNames(typeof(TEnum)).FirstOrDefault(name => name.StartsWith(value, true, CultureInfo.InvariantCulture));
+
+            if (prefixMatch == null)
+                return false;
+
+            return Enum.TryParse(prefixMatch, true, out result);
+        }
+
+        private static GroupCollection? tryMatchRegex(string value, string regex)
+        {
+            Match matches = Regex.Match(value, regex);
+
+            if (matches.Success)
+                return matches.Groups;
+
+            return null;
+        }
+
         /// <summary>
         /// Attempts to parse a keyword filter with the specified <paramref name="op"/> and textual <paramref name="value"/>.
         /// If the value indicates a valid textual filter, the function returns <c>true</c> and the resulting data is stored into
@@ -136,7 +164,7 @@ namespace osu.Game.Screens.Select
             switch (op)
             {
                 case Operator.Equal:
-                    textFilter.SearchTerm = value.Trim('"');
+                    textFilter.SearchTerm = value;
                     return true;
 
                 default:
@@ -303,11 +331,45 @@ namespace osu.Game.Screens.Select
 
         private static bool tryUpdateLengthRange(FilterCriteria criteria, Operator op, string val)
         {
-            if (!tryParseDoubleWithPoint(val.TrimEnd('m', 's', 'h'), out var length))
+            List<string> parts = new List<string>();
+
+            GroupCollection? match = null;
+
+            match ??= tryMatchRegex(val, @"^((?<hours>\d+):)?(?<minutes>\d+):(?<seconds>\d+)$");
+            match ??= tryMatchRegex(val, @"^((?<hours>\d+(\.\d+)?)h)?((?<minutes>\d+(\.\d+)?)m)?((?<seconds>\d+(\.\d+)?)s)?$");
+            match ??= tryMatchRegex(val, @"^(?<seconds>\d+(\.\d+)?)$");
+
+            if (match == null)
                 return false;
 
-            var scale = getLengthScale(val);
-            return tryUpdateCriteriaRange(ref criteria.Length, op, length * scale, scale / 2.0);
+            if (match["seconds"].Success)
+                parts.Add(match["seconds"].Value + "s");
+            if (match["minutes"].Success)
+                parts.Add(match["minutes"].Value + "m");
+            if (match["hours"].Success)
+                parts.Add(match["hours"].Value + "h");
+
+            double totalLength = 0;
+            int minScale = 3600000;
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                string part = parts[i];
+                string partNoUnit = part.TrimEnd('m', 's', 'h');
+                if (!tryParseDoubleWithPoint(partNoUnit, out double length))
+                    return false;
+
+                if (i != parts.Count - 1 && length >= 60)
+                    return false;
+                if (i != 0 && partNoUnit.Contains('.'))
+                    return false;
+
+                int scale = getLengthScale(part);
+                totalLength += length * scale;
+                minScale = Math.Min(minScale, scale);
+            }
+
+            return tryUpdateCriteriaRange(ref criteria.Length, op, totalLength, minScale / 2.0);
         }
     }
 }

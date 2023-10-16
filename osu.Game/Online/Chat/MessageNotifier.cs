@@ -1,30 +1,35 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System;
+#nullable disable
+
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Linq;
+using System.Text.RegularExpressions;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Sprites;
+using osu.Framework.Platform;
 using osu.Game.Configuration;
 using osu.Game.Graphics;
+using osu.Game.Localisation;
 using osu.Game.Online.API;
+using osu.Game.Online.API.Requests.Responses;
 using osu.Game.Overlays;
 using osu.Game.Overlays.Notifications;
-using osu.Game.Users;
 
 namespace osu.Game.Online.Chat
 {
     /// <summary>
     /// Component that handles creating and posting notifications for incoming messages.
     /// </summary>
-    public class MessageNotifier : Component
+    public partial class MessageNotifier : Component
     {
         [Resolved]
-        private NotificationOverlay notifications { get; set; }
+        private INotificationOverlay notifications { get; set; }
 
         [Resolved]
         private ChatOverlay chatOverlay { get; set; }
@@ -32,10 +37,13 @@ namespace osu.Game.Online.Chat
         [Resolved]
         private ChannelManager channelManager { get; set; }
 
+        [Resolved]
+        private GameHost host { get; set; }
+
         private Bindable<bool> notifyOnUsername;
         private Bindable<bool> notifyOnPrivateMessage;
 
-        private readonly IBindable<User> localUser = new Bindable<User>();
+        private readonly IBindable<APIUser> localUser = new Bindable<APIUser>();
         private readonly IBindableList<Channel> joinedChannels = new BindableList<Channel>();
 
         [BackgroundDependencyLoader]
@@ -59,12 +67,16 @@ namespace osu.Game.Online.Chat
             switch (e.Action)
             {
                 case NotifyCollectionChangedAction.Add:
+                    Debug.Assert(e.NewItems != null);
+
                     foreach (var channel in e.NewItems.Cast<Channel>())
                         channel.NewMessagesArrived += checkNewMessages;
 
                     break;
 
                 case NotifyCollectionChangedAction.Remove:
+                    Debug.Assert(e.OldItems != null);
+
                     foreach (var channel in e.OldItems.Cast<Channel>())
                         channel.NewMessagesArrived -= checkNewMessages;
 
@@ -77,13 +89,13 @@ namespace osu.Game.Online.Chat
             if (!messages.Any())
                 return;
 
-            var channel = channelManager.JoinedChannels.SingleOrDefault(c => c.Id == messages.First().ChannelId);
+            var channel = channelManager.JoinedChannels.SingleOrDefault(c => c.Id > 0 && c.Id == messages.First().ChannelId);
 
             if (channel == null)
                 return;
 
-            // Only send notifications, if ChatOverlay and the target channel aren't visible.
-            if (chatOverlay.IsPresent && channelManager.CurrentChannel.Value == channel)
+            // Only send notifications if ChatOverlay or the target channel aren't visible, or if the window is unfocused
+            if (chatOverlay.IsPresent && channelManager.CurrentChannel.Value == channel && host.IsActive.Value)
                 return;
 
             foreach (var message in messages.OrderByDescending(m => m.Id))
@@ -92,6 +104,7 @@ namespace osu.Game.Online.Chat
                 if (message.Id <= channel.LastReadId)
                     return;
 
+                // ignore notifications triggered by local user's own chat messages
                 if (message.Sender.Id == localUser.Value.Id)
                     continue;
 
@@ -114,65 +127,70 @@ namespace osu.Game.Online.Chat
             if (!notifyOnPrivateMessage.Value || channel.Type != ChannelType.PM)
                 return false;
 
-            notifications.Post(new PrivateMessageNotification(message.Sender.Username, channel));
+            notifications.Post(new PrivateMessageNotification(message, channel));
             return true;
         }
 
         private void checkForMentions(Channel channel, Message message)
         {
-            if (!notifyOnUsername.Value || !checkContainsUsername(message.Content, localUser.Value.Username)) return;
+            if (!notifyOnUsername.Value || !CheckContainsUsername(message.Content, localUser.Value.Username)) return;
 
-            notifications.Post(new MentionNotification(message.Sender.Username, channel));
+            notifications.Post(new MentionNotification(message, channel));
         }
 
         /// <summary>
-        /// Checks if <paramref name="message"/> contains <paramref name="username"/>.
+        /// Checks if <paramref name="message"/> mentions <paramref name="username"/>.
         /// This will match against the case where underscores are used instead of spaces (which is how osu-stable handles usernames with spaces).
         /// </summary>
-        private static bool checkContainsUsername(string message, string username) => message.Contains(username, StringComparison.OrdinalIgnoreCase) || message.Contains(username.Replace(' ', '_'), StringComparison.OrdinalIgnoreCase);
-
-        public class PrivateMessageNotification : OpenChannelNotification
+        public static bool CheckContainsUsername(string message, string username)
         {
-            public PrivateMessageNotification(string username, Channel channel)
-                : base(channel)
+            string fullName = Regex.Escape(username);
+            string underscoreName = Regex.Escape(username.Replace(' ', '_'));
+            return Regex.IsMatch(message, $@"(^|\W)({fullName}|{underscoreName})($|\W)", RegexOptions.IgnoreCase);
+        }
+
+        public partial class PrivateMessageNotification : HighlightMessageNotification
+        {
+            public PrivateMessageNotification(Message message, Channel channel)
+                : base(message, channel)
             {
                 Icon = FontAwesome.Solid.Envelope;
-                Text = $"You received a private message from '{username}'. Click to read it!";
+                Text = NotificationsStrings.PrivateMessageReceived(message.Sender.Username);
             }
         }
 
-        public class MentionNotification : OpenChannelNotification
+        public partial class MentionNotification : HighlightMessageNotification
         {
-            public MentionNotification(string username, Channel channel)
-                : base(channel)
+            public MentionNotification(Message message, Channel channel)
+                : base(message, channel)
             {
                 Icon = FontAwesome.Solid.At;
-                Text = $"Your name was mentioned in chat by '{username}'. Click to find out why!";
+                Text = NotificationsStrings.YourNameWasMentioned(message.Sender.Username);
             }
         }
 
-        public abstract class OpenChannelNotification : SimpleNotification
+        public abstract partial class HighlightMessageNotification : SimpleNotification
         {
-            protected OpenChannelNotification(Channel channel)
+            public override string PopInSampleName => "UI/notification-mention";
+
+            protected HighlightMessageNotification(Message message, Channel channel)
             {
+                this.message = message;
                 this.channel = channel;
             }
 
+            private readonly Message message;
             private readonly Channel channel;
 
-            public override bool IsImportant => false;
-
             [BackgroundDependencyLoader]
-            private void load(OsuColour colours, ChatOverlay chatOverlay, NotificationOverlay notificationOverlay, ChannelManager channelManager)
+            private void load(OsuColour colours, ChatOverlay chatOverlay, INotificationOverlay notificationOverlay)
             {
-                IconBackgound.Colour = colours.PurpleDark;
+                IconContent.Colour = colours.PurpleDark;
 
                 Activated = delegate
                 {
                     notificationOverlay.Hide();
-                    chatOverlay.Show();
-                    channelManager.CurrentChannel.Value = channel;
-
+                    chatOverlay.HighlightMessage(message, channel);
                     return true;
                 };
             }

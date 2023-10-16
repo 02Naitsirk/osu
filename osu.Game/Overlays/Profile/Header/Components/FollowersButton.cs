@@ -5,15 +5,15 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
-using osu.Game.Users;
+using osu.Game.Resources.Localisation.Web;
 
 namespace osu.Game.Overlays.Profile.Header.Components
 {
-    public class FollowersButton : ProfileHeaderStatisticsButton
+    public partial class FollowersButton : ProfileHeaderStatisticsButton
     {
-        public readonly Bindable<User> User = new Bindable<User>();
+        public readonly Bindable<UserProfileData?> User = new Bindable<UserProfileData?>();
 
-        public override LocalisableString TooltipText => "followers";
+        public override LocalisableString TooltipText => FriendsStrings.ButtonsDisabled;
 
         protected override IconUsage Icon => FontAwesome.Solid.User;
 
@@ -21,7 +21,7 @@ namespace osu.Game.Overlays.Profile.Header.Components
         private void load()
         {
             // todo: when friending/unfriending is implemented, the APIAccess.Friends list should be updated accordingly.
-            User.BindValueChanged(user => SetValue(user.NewValue?.FollowerCount ?? 0), true);
+            User.BindValueChanged(user => SetValue(user.NewValue?.User.FollowerCount ?? 0), true);
         }
     }
 }

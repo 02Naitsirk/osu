@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Framework.Allocation;
@@ -17,7 +17,7 @@ namespace osu.Game.Rulesets.Mania.UI
     /// <summary>
     /// A <see cref="Container"/> that has its contents partially hidden by an adjustable "cover". This is intended to be used in a playfield.
     /// </summary>
-    public class PlayfieldCoveringWrapper : CompositeDrawable
+    public partial class PlayfieldCoveringWrapper : CompositeDrawable
     {
         /// <summary>
         /// The complete cover, including gradient and fill.

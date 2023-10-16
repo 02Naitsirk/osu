@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,14 +20,9 @@ using osu.Framework.Threading;
 
 namespace osu.Game.Screens.Play
 {
-    public class SquareGraph : Container
+    public partial class SquareGraph : Container
     {
         private BufferedContainer<Column> columns;
-
-        public SquareGraph()
-        {
-            AddLayout(layout);
-        }
 
         public int ColumnCount => columns?.Children.Count ?? 0;
 
@@ -73,14 +70,20 @@ namespace osu.Game.Screens.Play
             }
         }
 
-        private readonly LayoutValue layout = new LayoutValue(Invalidation.DrawSize);
         private ScheduledDelegate scheduledCreate;
+
+        private readonly LayoutValue layout = new LayoutValue(Invalidation.DrawSize | Invalidation.DrawInfo);
+
+        public SquareGraph()
+        {
+            AddLayout(layout);
+        }
 
         protected override void Update()
         {
             base.Update();
 
-            if (values != null && !layout.IsValid)
+            if (!layout.IsValid)
             {
                 columns?.FadeOut(500, Easing.OutQuint).Expire();
 
@@ -98,9 +101,8 @@ namespace osu.Game.Screens.Play
         /// </summary>
         protected virtual void RecreateGraph()
         {
-            var newColumns = new BufferedContainer<Column>
+            var newColumns = new BufferedContainer<Column>(cachedFrameBuffer: true)
             {
-                CacheDrawnFrameBuffer = true,
                 RedrawOnScale = false,
                 RelativeSizeAxes = Axes.Both,
             };
@@ -165,7 +167,7 @@ namespace osu.Game.Screens.Play
                 return;
             }
 
-            var max = values.Max();
+            int max = values.Max();
 
             float step = values.Length / (float)ColumnCount;
 
@@ -177,7 +179,7 @@ namespace osu.Game.Screens.Play
             calculatedValues = newValues.ToArray();
         }
 
-        public class Column : Container, IStateful<ColumnState>
+        public partial class Column : Container, IStateful<ColumnState>
         {
             protected readonly Color4 EmptyColour = Color4.White.Opacity(20);
             public Color4 LitColour = Color4.LightBlue;

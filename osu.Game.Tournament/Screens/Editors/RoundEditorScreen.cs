@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Linq;
@@ -7,28 +7,32 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
-using osu.Game.Beatmaps;
 using osu.Game.Graphics;
 using osu.Game.Online.API;
 using osu.Game.Online.API.Requests;
+using osu.Game.Online.API.Requests.Responses;
+using osu.Game.Overlays;
 using osu.Game.Overlays.Settings;
-using osu.Game.Rulesets;
 using osu.Game.Tournament.Components;
 using osu.Game.Tournament.Models;
+using osu.Game.Tournament.Screens.Editors.Components;
 using osuTK;
 
 namespace osu.Game.Tournament.Screens.Editors
 {
-    public class RoundEditorScreen : TournamentEditorScreen<RoundEditorScreen.RoundRow, TournamentRound>
+    public partial class RoundEditorScreen : TournamentEditorScreen<RoundEditorScreen.RoundRow, TournamentRound>
     {
         protected override BindableList<TournamentRound> Storage => LadderInfo.Rounds;
 
-        public class RoundRow : CompositeDrawable, IModelBacked<TournamentRound>
+        public partial class RoundRow : CompositeDrawable, IModelBacked<TournamentRound>
         {
             public TournamentRound Model { get; }
 
             [Resolved]
-            private LadderInfo ladderInfo { get; set; }
+            private LadderInfo ladderInfo { get; set; } = null!;
+
+            [Resolved]
+            private IDialogOverlay? dialogOverlay { get; set; }
 
             public RoundRow(TournamentRound round)
             {
@@ -100,11 +104,11 @@ namespace osu.Game.Tournament.Screens.Editors
                         RelativeSizeAxes = Axes.None,
                         Width = 150,
                         Text = "Delete Round",
-                        Action = () =>
+                        Action = () => dialogOverlay?.Push(new DeleteRoundDialog(Model, () =>
                         {
                             Expire();
                             ladderInfo.Rounds.Remove(Model);
-                        },
+                        }))
                     }
                 };
 
@@ -112,7 +116,7 @@ namespace osu.Game.Tournament.Screens.Editors
                 AutoSizeAxes = Axes.Y;
             }
 
-            public class RoundBeatmapEditor : CompositeDrawable
+            public partial class RoundBeatmapEditor : CompositeDrawable
             {
                 private readonly TournamentRound round;
                 private readonly FillFlowContainer flow;
@@ -135,21 +139,23 @@ namespace osu.Game.Tournament.Screens.Editors
 
                 public void CreateNew()
                 {
-                    var user = new RoundBeatmap();
-                    round.Beatmaps.Add(user);
-                    flow.Add(new RoundBeatmapRow(round, user));
+                    var b = new RoundBeatmap();
+
+                    round.Beatmaps.Add(b);
+
+                    flow.Add(new RoundBeatmapRow(round, b));
                 }
 
-                public class RoundBeatmapRow : CompositeDrawable
+                public partial class RoundBeatmapRow : CompositeDrawable
                 {
                     public RoundBeatmap Model { get; }
 
                     [Resolved]
-                    protected IAPIProvider API { get; private set; }
+                    protected IAPIProvider API { get; private set; } = null!;
 
                     private readonly Bindable<int?> beatmapId = new Bindable<int?>();
 
-                    private readonly Bindable<string> mods = new Bindable<string>();
+                    private readonly Bindable<string> mods = new Bindable<string>(string.Empty);
 
                     private readonly Container drawableContainer;
 
@@ -218,7 +224,7 @@ namespace osu.Game.Tournament.Screens.Editors
                     }
 
                     [BackgroundDependencyLoader]
-                    private void load(RulesetStore rulesets)
+                    private void load()
                     {
                         beatmapId.Value = Model.ID;
                         beatmapId.BindValueChanged(id =>
@@ -226,25 +232,25 @@ namespace osu.Game.Tournament.Screens.Editors
                             Model.ID = id.NewValue ?? 0;
 
                             if (id.NewValue != id.OldValue)
-                                Model.BeatmapInfo = null;
+                                Model.Beatmap = null;
 
-                            if (Model.BeatmapInfo != null)
+                            if (Model.Beatmap != null)
                             {
                                 updatePanel();
                                 return;
                             }
 
-                            var req = new GetBeatmapRequest(new BeatmapInfo { OnlineBeatmapID = Model.ID });
+                            var req = new GetBeatmapRequest(new APIBeatmap { OnlineID = Model.ID });
 
                             req.Success += res =>
                             {
-                                Model.BeatmapInfo = res.ToBeatmap(rulesets);
+                                Model.Beatmap = new TournamentBeatmap(res);
                                 updatePanel();
                             };
 
                             req.Failure += _ =>
                             {
-                                Model.BeatmapInfo = null;
+                                Model.Beatmap = null;
                                 updatePanel();
                             };
 
@@ -255,20 +261,20 @@ namespace osu.Game.Tournament.Screens.Editors
                         mods.BindValueChanged(modString => Model.Mods = modString.NewValue);
                     }
 
-                    private void updatePanel()
+                    private void updatePanel() => Schedule(() =>
                     {
                         drawableContainer.Clear();
 
-                        if (Model.BeatmapInfo != null)
+                        if (Model.Beatmap != null)
                         {
-                            drawableContainer.Child = new TournamentBeatmapPanel(Model.BeatmapInfo, Model.Mods)
+                            drawableContainer.Child = new TournamentBeatmapPanel(Model.Beatmap, Model.Mods)
                             {
                                 Anchor = Anchor.CentreLeft,
                                 Origin = Anchor.CentreLeft,
                                 Width = 300
                             };
                         }
-                    }
+                    });
                 }
             }
         }

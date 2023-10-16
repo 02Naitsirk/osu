@@ -6,16 +6,18 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Newtonsoft.Json;
+using osu.Framework.Bindables;
 using osu.Game.Audio;
 using osu.Game.Beatmaps;
 using osu.Game.Beatmaps.ControlPoints;
+using osu.Game.Rulesets.Catch.UI;
 using osu.Game.Rulesets.Judgements;
 using osu.Game.Rulesets.Objects;
 using osu.Game.Rulesets.Objects.Types;
 
 namespace osu.Game.Rulesets.Catch.Objects
 {
-    public class JuiceStream : CatchHitObject, IHasPathWithRepeats
+    public class JuiceStream : CatchHitObject, IHasPathWithRepeats, IHasSliderVelocity
     {
         /// <summary>
         /// Positional distance that results in a duration of one second, before any speed adjustments.
@@ -26,28 +28,44 @@ namespace osu.Game.Rulesets.Catch.Objects
 
         public int RepeatCount { get; set; }
 
-        [JsonIgnore]
-        public double Velocity { get; private set; }
+        public BindableNumber<double> SliderVelocityMultiplierBindable { get; } = new BindableDouble(1)
+        {
+            Precision = 0.01,
+            MinValue = 0.1,
+            MaxValue = 10
+        };
+
+        public double SliderVelocityMultiplier
+        {
+            get => SliderVelocityMultiplierBindable.Value;
+            set => SliderVelocityMultiplierBindable.Value = value;
+        }
 
         [JsonIgnore]
-        public double TickDistance { get; private set; }
+        private double velocityFactor;
+
+        [JsonIgnore]
+        private double tickDistanceFactor;
+
+        [JsonIgnore]
+        public double Velocity => velocityFactor * SliderVelocityMultiplier;
+
+        [JsonIgnore]
+        public double TickDistance => tickDistanceFactor * SliderVelocityMultiplier;
 
         /// <summary>
         /// The length of one span of this <see cref="JuiceStream"/>.
         /// </summary>
         public double SpanDuration => Duration / this.SpanCount();
 
-        protected override void ApplyDefaultsToSelf(ControlPointInfo controlPointInfo, BeatmapDifficulty difficulty)
+        protected override void ApplyDefaultsToSelf(ControlPointInfo controlPointInfo, IBeatmapDifficultyInfo difficulty)
         {
             base.ApplyDefaultsToSelf(controlPointInfo, difficulty);
 
             TimingControlPoint timingPoint = controlPointInfo.TimingPointAt(StartTime);
-            DifficultyControlPoint difficultyPoint = controlPointInfo.DifficultyPointAt(StartTime);
 
-            double scoringDistance = base_scoring_distance * difficulty.SliderMultiplier * difficultyPoint.SpeedMultiplier;
-
-            Velocity = scoringDistance / timingPoint.BeatLength;
-            TickDistance = scoringDistance / difficulty.SliderTickRate;
+            velocityFactor = base_scoring_distance * difficulty.SliderMultiplier / timingPoint.BeatLength;
+            tickDistanceFactor = base_scoring_distance * difficulty.SliderMultiplier / difficulty.SliderTickRate;
         }
 
         protected override void CreateNestedHitObjects(CancellationToken cancellationToken)
@@ -59,7 +77,7 @@ namespace osu.Game.Rulesets.Catch.Objects
             int nodeIndex = 0;
             SliderEventDescriptor? lastEvent = null;
 
-            foreach (var e in SliderEventGenerator.Generate(StartTime, SpanDuration, Velocity, TickDistance, Path.Distance, this.SpanCount(), LegacyLastTickOffset, cancellationToken))
+            foreach (var e in SliderEventGenerator.Generate(StartTime, SpanDuration, Velocity, TickDistance, Path.Distance, this.SpanCount(), cancellationToken))
             {
                 // generate tiny droplets since the last point
                 if (lastEvent != null)
@@ -79,15 +97,15 @@ namespace osu.Game.Rulesets.Catch.Objects
                             AddNested(new TinyDroplet
                             {
                                 StartTime = t + lastEvent.Value.Time,
-                                X = OriginalX + Path.PositionAt(
-                                    lastEvent.Value.PathProgress + (t / sinceLastTick) * (e.PathProgress - lastEvent.Value.PathProgress)).X,
+                                X = ClampToPlayfield(EffectiveX + Path.PositionAt(
+                                    lastEvent.Value.PathProgress + (t / sinceLastTick) * (e.PathProgress - lastEvent.Value.PathProgress)).X),
                             });
                         }
                     }
                 }
 
-                // this also includes LegacyLastTick and this is used for TinyDroplet generation above.
-                // this means that the final segment of TinyDroplets are increasingly mistimed where LegacyLastTickOffset is being applied.
+                // this also includes LastTick and this is used for TinyDroplet generation above.
+                // this means that the final segment of TinyDroplets are increasingly mistimed where LastTick is being applied.
                 lastEvent = e;
 
                 switch (e.Type)
@@ -97,7 +115,7 @@ namespace osu.Game.Rulesets.Catch.Objects
                         {
                             Samples = dropletSamples,
                             StartTime = e.Time,
-                            X = OriginalX + Path.PositionAt(e.PathProgress).X,
+                            X = ClampToPlayfield(EffectiveX + Path.PositionAt(e.PathProgress).X),
                         });
                         break;
 
@@ -108,14 +126,16 @@ namespace osu.Game.Rulesets.Catch.Objects
                         {
                             Samples = this.GetNodeSamples(nodeIndex++),
                             StartTime = e.Time,
-                            X = OriginalX + Path.PositionAt(e.PathProgress).X,
+                            X = ClampToPlayfield(EffectiveX + Path.PositionAt(e.PathProgress).X),
                         });
                         break;
                 }
             }
         }
 
-        public float EndX => OriginalX + this.CurvePositionAt(1).X;
+        public float EndX => ClampToPlayfield(EffectiveX + this.CurvePositionAt(1).X);
+
+        public float ClampToPlayfield(float value) => Math.Clamp(value, 0, CatchPlayfield.WIDTH);
 
         [JsonIgnore]
         public double Duration
@@ -134,20 +154,13 @@ namespace osu.Game.Rulesets.Catch.Objects
             set
             {
                 path.ControlPoints.Clear();
-                path.ExpectedDistance.Value = null;
-
-                if (value != null)
-                {
-                    path.ControlPoints.AddRange(value.ControlPoints.Select(c => new PathControlPoint(c.Position.Value, c.Type.Value)));
-                    path.ExpectedDistance.Value = value.ExpectedDistance.Value;
-                }
+                path.ControlPoints.AddRange(value.ControlPoints.Select(c => new PathControlPoint(c.Position, c.Type)));
+                path.ExpectedDistance.Value = value.ExpectedDistance.Value;
             }
         }
 
         public double Distance => Path.Distance;
 
-        public List<IList<HitSampleInfo>> NodeSamples { get; set; } = new List<IList<HitSampleInfo>>();
-
-        public double? LegacyLastTickOffset { get; set; }
+        public IList<IList<HitSampleInfo>> NodeSamples { get; set; } = new List<IList<HitSampleInfo>>();
     }
 }

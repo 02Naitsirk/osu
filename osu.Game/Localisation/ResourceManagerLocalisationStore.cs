@@ -1,12 +1,15 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Resources;
+using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Localisation;
 
@@ -27,7 +30,10 @@ namespace osu.Game.Localisation
 
         public string Get(string lookup)
         {
-            var split = lookup.Split(':');
+            string[] split = lookup.Split(':');
+
+            if (split.Length < 2)
+                return null;
 
             string ns = split[0];
             string key = split[1];
@@ -59,6 +65,11 @@ namespace osu.Game.Localisation
                 if (manager == null)
                     return null;
 
+                // When using the English culture, prefer the fallbacks rather than osu-resources baked strings.
+                // They are guaranteed to be up-to-date, and is also what a developer expects to see when making changes to `xxxStrings.cs` files.
+                if (EffectiveCulture.Name == @"en")
+                    return null;
+
                 try
                 {
                     return manager.GetString(key, EffectiveCulture);
@@ -72,7 +83,7 @@ namespace osu.Game.Localisation
             }
         }
 
-        public Task<string> GetAsync(string lookup)
+        public Task<string> GetAsync(string lookup, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(Get(lookup));
         }

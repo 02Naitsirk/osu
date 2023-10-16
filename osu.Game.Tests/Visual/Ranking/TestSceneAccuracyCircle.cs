@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
@@ -8,6 +8,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Game.Online.API.Requests.Responses;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Osu;
 using osu.Game.Rulesets.Osu.Mods;
@@ -15,24 +16,32 @@ using osu.Game.Rulesets.Scoring;
 using osu.Game.Scoring;
 using osu.Game.Screens.Ranking.Expanded.Accuracy;
 using osu.Game.Tests.Beatmaps;
-using osu.Game.Users;
 using osuTK;
 
 namespace osu.Game.Tests.Visual.Ranking
 {
-    public class TestSceneAccuracyCircle : OsuTestScene
+    public partial class TestSceneAccuracyCircle : OsuTestScene
     {
-        [TestCase(0.2, ScoreRank.D)]
-        [TestCase(0.5, ScoreRank.D)]
-        [TestCase(0.75, ScoreRank.C)]
-        [TestCase(0.85, ScoreRank.B)]
-        [TestCase(0.925, ScoreRank.A)]
-        [TestCase(0.975, ScoreRank.S)]
-        [TestCase(0.9999, ScoreRank.S)]
-        [TestCase(1, ScoreRank.X)]
-        public void TestRank(double accuracy, ScoreRank rank)
+        [TestCase(0)]
+        [TestCase(0.2)]
+        [TestCase(0.5)]
+        [TestCase(0.6999)]
+        [TestCase(0.7)]
+        [TestCase(0.75)]
+        [TestCase(0.7999)]
+        [TestCase(0.8)]
+        [TestCase(0.85)]
+        [TestCase(0.8999)]
+        [TestCase(0.9)]
+        [TestCase(0.925)]
+        [TestCase(0.9499)]
+        [TestCase(0.95)]
+        [TestCase(0.975)]
+        [TestCase(0.9999)]
+        [TestCase(1)]
+        public void TestRank(double accuracy)
         {
-            var score = createScore(accuracy, rank);
+            var score = createScore(accuracy, ScoreProcessor.RankFromAccuracy(accuracy));
 
             addCircleStep(score);
         }
@@ -66,12 +75,13 @@ namespace osu.Game.Tests.Visual.Ranking
 
         private ScoreInfo createScore(double accuracy, ScoreRank rank) => new ScoreInfo
         {
-            User = new User
+            User = new APIUser
             {
                 Id = 2,
                 Username = "peppy",
             },
-            Beatmap = new TestBeatmap(new OsuRuleset().RulesetInfo).BeatmapInfo,
+            BeatmapInfo = new TestBeatmap(new OsuRuleset().RulesetInfo).BeatmapInfo,
+            Ruleset = new OsuRuleset().RulesetInfo,
             Mods = new Mod[] { new OsuModHardRock(), new OsuModDoubleTime() },
             TotalScore = 2845370,
             Accuracy = accuracy,

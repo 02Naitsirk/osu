@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System.Diagnostics;
 using JetBrains.Annotations;
 using osu.Framework.Allocation;
@@ -8,13 +10,12 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Game.Rulesets.Objects.Drawables;
 using osu.Game.Rulesets.Objects.Types;
-using osu.Game.Rulesets.Osu.Skinning.Default;
 using osu.Game.Skinning;
 using osuTK;
 
 namespace osu.Game.Rulesets.Osu.Objects.Drawables
 {
-    public class DrawableSliderTail : DrawableOsuHitObject, IRequireTracking, IHasMainCirclePiece
+    public partial class DrawableSliderTail : DrawableOsuHitObject, IRequireTracking
     {
         public new SliderTailCircle HitObject => (SliderTailCircle)base.HitObject;
 
@@ -54,9 +55,9 @@ namespace osu.Game.Rulesets.Osu.Objects.Drawables
         private void load()
         {
             Origin = Anchor.Centre;
-            Size = new Vector2(OsuHitObject.OBJECT_RADIUS * 2);
+            Size = OsuHitObject.OBJECT_DIMENSIONS;
 
-            InternalChildren = new Drawable[]
+            AddRangeInternal(new Drawable[]
             {
                 scaleContainer = new Container
                 {
@@ -66,19 +67,37 @@ namespace osu.Game.Rulesets.Osu.Objects.Drawables
                     Children = new Drawable[]
                     {
                         // no default for this; only visible in legacy skins.
-                        CirclePiece = new SkinnableDrawable(new OsuSkinComponent(OsuSkinComponents.SliderTailHitCircle), _ => Empty())
+                        CirclePiece = new SkinnableDrawable(new OsuSkinComponentLookup(OsuSkinComponents.SliderTailHitCircle), _ => Empty())
                     }
                 },
-            };
+            });
 
             ScaleBindable.BindValueChanged(scale => scaleContainer.Scale = new Vector2(scale.NewValue));
+        }
+
+        protected override void LoadSamples()
+        {
+            // Tail models don't actually get samples, as the playback is handled by DrawableSlider.
+            // This override is only here for visibility in explaining this weird flow.
+        }
+
+        public override void PlaySamples()
+        {
+            // Tail models don't actually get samples, as the playback is handled by DrawableSlider.
+            // This override is only here for visibility in explaining this weird flow.
         }
 
         protected override void UpdateInitialTransforms()
         {
             base.UpdateInitialTransforms();
 
-            CirclePiece.FadeInFromZero(HitObject.TimeFadeIn);
+            // When snaking in is enabled, the first end circle needs to be delayed until the snaking completes.
+            bool delayFadeIn = DrawableSlider.SliderBody?.SnakingIn.Value == true && HitObject.RepeatIndex == 0;
+
+            CirclePiece
+                .FadeOut()
+                .Delay(delayFadeIn ? (Slider?.TimePreempt ?? 0) / 3 : 0)
+                .FadeIn(HitObject.TimeFadeIn);
         }
 
         protected override void UpdateHitStateTransforms(ArmedState state)

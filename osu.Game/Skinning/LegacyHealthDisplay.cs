@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -9,14 +11,14 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Utils;
-using osu.Game.Rulesets.Judgements;
 using osu.Game.Screens.Play.HUD;
+using osu.Game.Utils;
 using osuTK;
 using osuTK.Graphics;
 
 namespace osu.Game.Skinning
 {
-    public class LegacyHealthDisplay : HealthDisplay, ISkinnableDrawable
+    public partial class LegacyHealthDisplay : HealthDisplay, ISerialisableDrawable
     {
         private const double epic_cutoff = 0.5;
 
@@ -63,6 +65,7 @@ namespace osu.Game.Skinning
             marker.Current.BindTo(Current);
 
             maxFillWidth = fill.Width;
+            fill.Width = 0;
         }
 
         protected override void Update()
@@ -76,22 +79,22 @@ namespace osu.Game.Skinning
             marker.Position = fill.Position + new Vector2(fill.DrawWidth, isNewStyle ? fill.DrawHeight / 2 : 0);
         }
 
-        protected override void Flash(JudgementResult result) => marker.Flash(result);
+        protected override void Flash() => marker.Flash();
 
         private static Texture getTexture(ISkin skin, string name) => skin?.GetTexture($"scorebar-{name}");
 
         private static Color4 getFillColour(double hp)
         {
             if (hp < 0.2)
-                return Interpolation.ValueAt(0.2 - hp, Color4.Black, Color4.Red, 0, 0.2);
+                return LegacyUtils.InterpolateNonLinear(0.2 - hp, Color4.Black, Color4.Red, 0, 0.2);
 
             if (hp < epic_cutoff)
-                return Interpolation.ValueAt(0.5 - hp, Color4.White, Color4.Black, 0, 0.5);
+                return LegacyUtils.InterpolateNonLinear(0.5 - hp, Color4.White, Color4.Black, 0, 0.5);
 
             return Color4.White;
         }
 
-        public class LegacyOldStyleMarker : LegacyMarker
+        public partial class LegacyOldStyleMarker : LegacyMarker
         {
             private readonly Texture normalTexture;
             private readonly Texture dangerTexture;
@@ -126,7 +129,7 @@ namespace osu.Game.Skinning
             }
         }
 
-        public class LegacyNewStyleMarker : LegacyMarker
+        public partial class LegacyNewStyleMarker : LegacyMarker
         {
             private readonly ISkin skin;
 
@@ -150,7 +153,7 @@ namespace osu.Game.Skinning
             }
         }
 
-        internal abstract class LegacyFill : LegacyHealthPiece
+        internal abstract partial class LegacyFill : LegacyHealthPiece
         {
             protected LegacyFill(ISkin skin)
             {
@@ -172,7 +175,7 @@ namespace osu.Game.Skinning
             }
         }
 
-        internal class LegacyOldStyleFill : LegacyFill
+        internal partial class LegacyOldStyleFill : LegacyFill
         {
             public LegacyOldStyleFill(ISkin skin)
                 : base(skin)
@@ -181,7 +184,7 @@ namespace osu.Game.Skinning
             }
         }
 
-        internal class LegacyNewStyleFill : LegacyFill
+        internal partial class LegacyNewStyleFill : LegacyFill
         {
             public LegacyNewStyleFill(ISkin skin)
                 : base(skin)
@@ -196,7 +199,7 @@ namespace osu.Game.Skinning
             }
         }
 
-        public abstract class LegacyMarker : LegacyHealthPiece
+        public abstract partial class LegacyMarker : LegacyHealthPiece
         {
             protected Sprite Main;
 
@@ -234,7 +237,7 @@ namespace osu.Game.Skinning
                 });
             }
 
-            public override void Flash(JudgementResult result)
+            public override void Flash()
             {
                 bulgeMain();
 
@@ -249,11 +252,11 @@ namespace osu.Game.Skinning
                 Main.ScaleTo(1.4f).Then().ScaleTo(1, 200, Easing.Out);
         }
 
-        public class LegacyHealthPiece : CompositeDrawable
+        public partial class LegacyHealthPiece : CompositeDrawable
         {
             public Bindable<double> Current { get; } = new Bindable<double>();
 
-            public virtual void Flash(JudgementResult result)
+            public virtual void Flash()
             {
             }
         }

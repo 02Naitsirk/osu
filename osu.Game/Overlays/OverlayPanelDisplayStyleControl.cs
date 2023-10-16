@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Graphics;
@@ -12,13 +14,12 @@ using osu.Framework.Allocation;
 using osuTK.Graphics;
 using osu.Framework.Graphics.Cursor;
 using osu.Framework.Localisation;
-using System;
 using osu.Game.Resources.Localisation.Web;
 using osu.Framework.Extensions;
 
 namespace osu.Game.Overlays
 {
-    public class OverlayPanelDisplayStyleControl : OsuTabControl<OverlayPanelDisplayStyle>
+    public partial class OverlayPanelDisplayStyleControl : OsuTabControl<OverlayPanelDisplayStyle>
     {
         protected override Dropdown<OverlayPanelDisplayStyle> CreateDropdown() => null;
 
@@ -50,7 +51,7 @@ namespace osu.Game.Overlays
             Direction = FillDirection.Horizontal
         };
 
-        private class PanelDisplayTabItem : TabItem<OverlayPanelDisplayStyle>, IHasTooltip
+        private partial class PanelDisplayTabItem : TabItem<OverlayPanelDisplayStyle>, IHasTooltip
         {
             public IconUsage Icon
             {
@@ -101,32 +102,15 @@ namespace osu.Game.Overlays
         }
     }
 
-    [LocalisableEnum(typeof(OverlayPanelDisplayStyleEnumLocalisationMapper))]
     public enum OverlayPanelDisplayStyle
     {
+        [LocalisableDescription(typeof(UsersStrings), nameof(UsersStrings.ViewModeCard))]
         Card,
+
+        [LocalisableDescription(typeof(UsersStrings), nameof(UsersStrings.ViewModeList))]
         List,
+
+        [LocalisableDescription(typeof(UsersStrings), nameof(UsersStrings.ViewModeBrick))]
         Brick
-    }
-
-    public class OverlayPanelDisplayStyleEnumLocalisationMapper : EnumLocalisationMapper<OverlayPanelDisplayStyle>
-    {
-        public override LocalisableString Map(OverlayPanelDisplayStyle value)
-        {
-            switch (value)
-            {
-                case OverlayPanelDisplayStyle.Card:
-                    return UsersStrings.ViewModeCard;
-
-                case OverlayPanelDisplayStyle.List:
-                    return UsersStrings.ViewModeList;
-
-                case OverlayPanelDisplayStyle.Brick:
-                    return UsersStrings.ViewModeBrick;
-
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(value), value, null);
-            }
-        }
     }
 }

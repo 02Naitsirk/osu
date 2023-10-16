@@ -1,32 +1,26 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System;
+#nullable disable
+
 using System.Diagnostics;
 using JetBrains.Annotations;
-using osu.Framework.Allocation;
 using osu.Framework.Bindables;
-using osu.Game.Rulesets.Objects.Types;
+using osu.Game.Rulesets.Osu.UI;
 using osu.Game.Rulesets.Scoring;
 
 namespace osu.Game.Rulesets.Osu.Objects.Drawables
 {
-    public class DrawableSliderHead : DrawableHitCircle
+    public partial class DrawableSliderHead : DrawableHitCircle
     {
         public new SliderHeadCircle HitObject => (SliderHeadCircle)base.HitObject;
 
         [CanBeNull]
         public Slider Slider => DrawableSlider?.HitObject;
 
-        protected DrawableSlider DrawableSlider => (DrawableSlider)ParentHitObject;
+        public DrawableSlider DrawableSlider => (DrawableSlider)ParentHitObject;
 
         public override bool DisplayResult => HitObject?.JudgeAsNormalHitCircle ?? base.DisplayResult;
-
-        /// <summary>
-        /// Makes this <see cref="DrawableSliderHead"/> track the follow circle when the start time is reached.
-        /// If <c>false</c>, this <see cref="DrawableSliderHead"/> will be pinned to its initial position in the slider.
-        /// </summary>
-        public bool TrackFollowCircle = true;
 
         private readonly IBindable<int> pathVersion = new Bindable<int>();
 
@@ -41,18 +35,16 @@ namespace osu.Game.Rulesets.Osu.Objects.Drawables
         {
         }
 
-        [BackgroundDependencyLoader]
-        private void load()
-        {
-            PositionBindable.BindValueChanged(_ => updatePosition());
-            pathVersion.BindValueChanged(_ => updatePosition());
-        }
-
         protected override void OnFree()
         {
             base.OnFree();
 
             pathVersion.UnbindFrom(DrawableSlider.PathVersion);
+        }
+
+        protected override void UpdatePosition()
+        {
+            // Slider head is always drawn at (0,0).
         }
 
         protected override void OnApply()
@@ -61,25 +53,7 @@ namespace osu.Game.Rulesets.Osu.Objects.Drawables
 
             pathVersion.BindTo(DrawableSlider.PathVersion);
 
-            OnShake = DrawableSlider.Shake;
-            CheckHittable = (d, t) => DrawableSlider.CheckHittable?.Invoke(d, t) ?? true;
-        }
-
-        protected override void Update()
-        {
-            base.Update();
-
-            Debug.Assert(Slider != null);
-            Debug.Assert(HitObject != null);
-
-            if (TrackFollowCircle)
-            {
-                double completionProgress = Math.Clamp((Time.Current - Slider.StartTime) / Slider.Duration, 0, 1);
-
-                //todo: we probably want to reconsider this before adding scoring, but it looks and feels nice.
-                if (!IsHit)
-                    Position = Slider.CurvePositionAt(completionProgress);
-            }
+            CheckHittable = (d, t, r) => DrawableSlider.CheckHittable?.Invoke(d, t, r) ?? ClickAction.Hit;
         }
 
         protected override HitResult ResultFor(double timeOffset)
@@ -94,14 +68,10 @@ namespace osu.Game.Rulesets.Osu.Objects.Drawables
             return result.IsHit() ? HitResult.LargeTickHit : HitResult.LargeTickMiss;
         }
 
-        public Action<double> OnShake;
-
-        public override void Shake(double maximumLength) => OnShake?.Invoke(maximumLength);
-
-        private void updatePosition()
+        public override void Shake()
         {
-            if (Slider != null)
-                Position = HitObject.Position - Slider.Position;
+            base.Shake();
+            DrawableSlider.Shake();
         }
     }
 }

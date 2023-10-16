@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
@@ -8,8 +8,9 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Caching;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Pooling;
 using osu.Framework.Graphics.Shapes;
-using osu.Game.Beatmaps;
 using osu.Game.Graphics;
 using osu.Game.Rulesets.Edit;
 using osu.Game.Rulesets.Mania.UI;
@@ -24,7 +25,7 @@ namespace osu.Game.Rulesets.Mania.Edit
     /// <summary>
     /// A grid which displays coloured beat divisor lines in proximity to the selection or placement cursor.
     /// </summary>
-    public class ManiaBeatSnapGrid : Component
+    public partial class ManiaBeatSnapGrid : CompositeComponent
     {
         private const double visible_range = 750;
 
@@ -44,21 +45,17 @@ namespace osu.Game.Rulesets.Mania.Edit
         }
 
         [Resolved]
-        private EditorBeatmap beatmap { get; set; }
+        private EditorBeatmap beatmap { get; set; } = null!;
 
         [Resolved]
-        private IScrollingInfo scrollingInfo { get; set; }
+        private OsuColour colours { get; set; } = null!;
 
         [Resolved]
-        private Bindable<WorkingBeatmap> working { get; set; }
-
-        [Resolved]
-        private OsuColour colours { get; set; }
-
-        [Resolved]
-        private BindableBeatDivisor beatDivisor { get; set; }
+        private BindableBeatDivisor beatDivisor { get; set; } = null!;
 
         private readonly List<ScrollingHitObjectContainer> grids = new List<ScrollingHitObjectContainer>();
+
+        private readonly DrawablePool<DrawableGridLine> linesPool = new DrawablePool<DrawableGridLine>(50);
 
         private readonly Cached lineCache = new Cached();
 
@@ -67,6 +64,8 @@ namespace osu.Game.Rulesets.Mania.Edit
         [BackgroundDependencyLoader]
         private void load(HitObjectComposer composer)
         {
+            AddInternal(linesPool);
+
             foreach (var stage in ((ManiaPlayfield)composer.Playfield).Stages)
             {
                 foreach (var column in stage.Columns)
@@ -92,17 +91,10 @@ namespace osu.Game.Rulesets.Mania.Edit
             }
         }
 
-        private readonly Stack<DrawableGridLine> availableLines = new Stack<DrawableGridLine>();
-
         private void createLines()
         {
             foreach (var grid in grids)
-            {
-                foreach (var line in grid.Objects.OfType<DrawableGridLine>())
-                    availableLines.Push(line);
-
                 grid.Clear();
-            }
 
             if (selectionTimeRange == null)
                 return;
@@ -134,14 +126,17 @@ namespace osu.Game.Rulesets.Mania.Edit
                 }
 
                 Color4 colour = BindableBeatDivisor.GetColourFor(
-                    BindableBeatDivisor.GetDivisorForBeatIndex(Math.Max(1, beat), beatDivisor.Value), colours);
+                    BindableBeatDivisor.GetDivisorForBeatIndex(beat, beatDivisor.Value), colours);
 
                 foreach (var grid in grids)
                 {
-                    if (!availableLines.TryPop(out var line))
-                        line = new DrawableGridLine();
+                    var line = linesPool.Get();
 
-                    line.HitObject.StartTime = time;
+                    line.Apply(new HitObject
+                    {
+                        StartTime = time
+                    });
+
                     line.Colour = colour;
 
                     grid.Add(line);
@@ -171,10 +166,10 @@ namespace osu.Game.Rulesets.Mania.Edit
             }
         }
 
-        private class DrawableGridLine : DrawableHitObject
+        private partial class DrawableGridLine : DrawableHitObject
         {
             [Resolved]
-            private IScrollingInfo scrollingInfo { get; set; }
+            private IScrollingInfo scrollingInfo { get; set; } = null!;
 
             private readonly IBindable<ScrollingDirection> direction = new Bindable<ScrollingDirection>();
 

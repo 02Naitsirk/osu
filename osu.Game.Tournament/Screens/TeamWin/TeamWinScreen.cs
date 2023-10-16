@@ -5,7 +5,6 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Framework.Platform;
 using osu.Game.Graphics;
 using osu.Game.Tournament.Components;
 using osu.Game.Tournament.Models;
@@ -13,17 +12,17 @@ using osuTK;
 
 namespace osu.Game.Tournament.Screens.TeamWin
 {
-    public class TeamWinScreen : TournamentMatchScreen, IProvideVideo
+    public partial class TeamWinScreen : TournamentMatchScreen
     {
-        private Container mainContainer;
+        private Container mainContainer = null!;
 
         private readonly Bindable<bool> currentCompleted = new Bindable<bool>();
 
-        private TourneyVideo blueWinVideo;
-        private TourneyVideo redWinVideo;
+        private TourneyVideo blueWinVideo = null!;
+        private TourneyVideo redWinVideo = null!;
 
         [BackgroundDependencyLoader]
-        private void load(LadderInfo ladder, Storage storage)
+        private void load()
         {
             RelativeSizeAxes = Axes.Both;
 
@@ -50,7 +49,7 @@ namespace osu.Game.Tournament.Screens.TeamWin
             currentCompleted.BindValueChanged(_ => update());
         }
 
-        protected override void CurrentMatchChanged(ValueChangedEvent<TournamentMatch> match)
+        protected override void CurrentMatchChanged(ValueChangedEvent<TournamentMatch?> match)
         {
             base.CurrentMatchChanged(match);
 
@@ -65,11 +64,11 @@ namespace osu.Game.Tournament.Screens.TeamWin
 
         private bool firstDisplay = true;
 
-        private void update() => Schedule(() =>
+        private void update() => Scheduler.AddOnce(() =>
         {
             var match = CurrentMatch.Value;
 
-            if (match.Winner == null)
+            if (match?.Winner == null)
             {
                 mainContainer.Clear();
                 return;

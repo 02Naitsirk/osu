@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using osuTK;
 using osu.Game.Rulesets.Objects.Types;
 using System.Collections.Generic;
@@ -8,17 +10,19 @@ using osu.Game.Rulesets.Objects;
 using System.Linq;
 using System.Threading;
 using Newtonsoft.Json;
+using osu.Framework.Bindables;
 using osu.Framework.Caching;
 using osu.Game.Audio;
 using osu.Game.Beatmaps;
 using osu.Game.Beatmaps.ControlPoints;
 using osu.Game.Rulesets.Judgements;
+using osu.Game.Rulesets.Objects.Legacy;
 using osu.Game.Rulesets.Osu.Judgements;
 using osu.Game.Rulesets.Scoring;
 
 namespace osu.Game.Rulesets.Osu.Objects
 {
-    public class Slider : OsuHitObject, IHasPathWithRepeats
+    public class Slider : OsuHitObject, IHasPathWithRepeats, IHasSliderVelocity, IHasGenerateTicks
     {
         public double EndTime => StartTime + this.SpanCount() * Path.Distance / Velocity;
 
@@ -28,6 +32,8 @@ namespace osu.Game.Rulesets.Osu.Objects
             get => EndTime - StartTime;
             set => throw new System.NotSupportedException($"Adjust via {nameof(RepeatCount)} instead"); // can be implemented if/when needed.
         }
+
+        public override IList<HitSampleInfo> AuxiliarySamples => CreateSlidingSamples().Concat(TailSamples).ToArray();
 
         private readonly Cached<Vector2> endPositionCache = new Cached<Vector2>();
 
@@ -47,7 +53,7 @@ namespace osu.Game.Rulesets.Osu.Objects
 
                 if (value != null)
                 {
-                    path.ControlPoints.AddRange(value.ControlPoints.Select(c => new PathControlPoint(c.Position.Value, c.Type.Value)));
+                    path.ControlPoints.AddRange(value.ControlPoints.Select(c => new PathControlPoint(c.Position, c.Type)));
                     path.ExpectedDistance.Value = value.ExpectedDistance.Value;
                 }
             }
@@ -65,8 +71,6 @@ namespace osu.Game.Rulesets.Osu.Objects
             }
         }
 
-        public double? LegacyLastTickOffset { get; set; }
-
         /// <summary>
         /// The position of the cursor at the point of completion of this <see cref="Slider"/> if it was hit
         /// with as few movements as possible. This is set and used by difficulty calculation.
@@ -79,7 +83,13 @@ namespace osu.Game.Rulesets.Osu.Objects
         /// </summary>
         internal float LazyTravelDistance;
 
-        public List<IList<HitSampleInfo>> NodeSamples { get; set; } = new List<IList<HitSampleInfo>>();
+        /// <summary>
+        /// The time taken by the cursor upon completion of this <see cref="Slider"/> if it was hit
+        /// with as few movements as possible. This is set and used by difficulty calculation.
+        /// </summary>
+        internal double LazyTravelTime;
+
+        public IList<IList<HitSampleInfo>> NodeSamples { get; set; } = new List<IList<HitSampleInfo>>();
 
         [JsonIgnore]
         public IList<HitSampleInfo> TailSamples { get; private set; }
@@ -102,7 +112,7 @@ namespace osu.Game.Rulesets.Osu.Objects
         public double SpanDuration => Duration / this.SpanCount();
 
         /// <summary>
-        /// Velocity of this <see cref="Slider"/>.
+        /// The computed velocity of this <see cref="Slider"/>. This is the amount of path distance travelled in 1 ms.
         /// </summary>
         public double Velocity { get; private set; }
 
@@ -123,6 +133,20 @@ namespace osu.Game.Rulesets.Osu.Objects
         /// </summary>
         public bool OnlyJudgeNestedObjects = true;
 
+        public BindableNumber<double> SliderVelocityMultiplierBindable { get; } = new BindableDouble(1)
+        {
+            MinValue = 0.1,
+            MaxValue = 10
+        };
+
+        public double SliderVelocityMultiplier
+        {
+            get => SliderVelocityMultiplierBindable.Value;
+            set => SliderVelocityMultiplierBindable.Value = value;
+        }
+
+        public bool GenerateTicks { get; set; } = true;
+
         [JsonIgnore]
         public SliderHeadCircle HeadCircle { get; protected set; }
 
@@ -131,29 +155,31 @@ namespace osu.Game.Rulesets.Osu.Objects
 
         public Slider()
         {
-            SamplesBindable.CollectionChanged += (_, __) => updateNestedSamples();
+            SamplesBindable.CollectionChanged += (_, _) => UpdateNestedSamples();
             Path.Version.ValueChanged += _ => updateNestedPositions();
         }
 
-        protected override void ApplyDefaultsToSelf(ControlPointInfo controlPointInfo, BeatmapDifficulty difficulty)
+        protected override void ApplyDefaultsToSelf(ControlPointInfo controlPointInfo, IBeatmapDifficultyInfo difficulty)
         {
             base.ApplyDefaultsToSelf(controlPointInfo, difficulty);
 
             TimingControlPoint timingPoint = controlPointInfo.TimingPointAt(StartTime);
-            DifficultyControlPoint difficultyPoint = controlPointInfo.DifficultyPointAt(StartTime);
 
-            double scoringDistance = BASE_SCORING_DISTANCE * difficulty.SliderMultiplier * difficultyPoint.SpeedMultiplier;
+            Velocity = BASE_SCORING_DISTANCE * difficulty.SliderMultiplier / LegacyRulesetExtensions.GetPrecisionAdjustedBeatLength(this, timingPoint, OsuRuleset.SHORT_NAME);
+            // WARNING: this is intentionally not computed as `BASE_SCORING_DISTANCE * difficulty.SliderMultiplier`
+            // for backwards compatibility reasons (intentionally introducing floating point errors to match stable).
+            double scoringDistance = Velocity * timingPoint.BeatLength;
 
-            Velocity = scoringDistance / timingPoint.BeatLength;
-            TickDistance = scoringDistance / difficulty.SliderTickRate * TickDistanceMultiplier;
+            TickDistance = GenerateTicks ? (scoringDistance / difficulty.SliderTickRate * TickDistanceMultiplier) : double.PositiveInfinity;
         }
 
         protected override void CreateNestedHitObjects(CancellationToken cancellationToken)
         {
             base.CreateNestedHitObjects(cancellationToken);
 
-            foreach (var e in
-                SliderEventGenerator.Generate(StartTime, SpanDuration, Velocity, TickDistance, Path.Distance, this.SpanCount(), LegacyLastTickOffset, cancellationToken))
+            var sliderEvents = SliderEventGenerator.Generate(StartTime, SpanDuration, Velocity, TickDistance, Path.Distance, this.SpanCount(), cancellationToken);
+
+            foreach (var e in sliderEvents)
             {
                 switch (e.Type)
                 {
@@ -175,14 +201,14 @@ namespace osu.Game.Rulesets.Osu.Objects
                             StartTime = e.Time,
                             Position = Position,
                             StackHeight = StackHeight,
-                            SampleControlPoint = SampleControlPoint,
                         });
                         break;
 
-                    case SliderEventType.LegacyLastTick:
-                        // we need to use the LegacyLastTick here for compatibility reasons (difficulty).
-                        // it is *okay* to use this because the TailCircle is not used for any meaningful purpose in gameplay.
-                        // if this is to change, we should revisit this.
+                    case SliderEventType.LastTick:
+                        // Of note, we are directly mapping LastTick (instead of `SliderEventType.Tail`)  to SliderTailCircle.
+                        // It is required as difficulty calculation and gameplay relies on reading this value.
+                        // (although it is displayed in classic skins, which may be a concern).
+                        // If this is to change, we should revisit this.
                         AddNested(TailCircle = new SliderTailCircle(this)
                         {
                             RepeatIndex = e.SpanIndex,
@@ -205,7 +231,7 @@ namespace osu.Game.Rulesets.Osu.Objects
                 }
             }
 
-            updateNestedSamples();
+            UpdateNestedSamples();
         }
 
         private void updateNestedPositions()
@@ -219,7 +245,7 @@ namespace osu.Game.Rulesets.Osu.Objects
                 TailCircle.Position = EndPosition;
         }
 
-        private void updateNestedSamples()
+        protected void UpdateNestedSamples()
         {
             var firstSample = Samples.FirstOrDefault(s => s.Name == HitSampleInfo.HIT_NORMAL)
                               ?? Samples.FirstOrDefault(); // TODO: remove this when guaranteed sort is present for samples (https://github.com/ppy/osu/issues/1933)
@@ -237,7 +263,9 @@ namespace osu.Game.Rulesets.Osu.Objects
             if (HeadCircle != null)
                 HeadCircle.Samples = this.GetNodeSamples(0);
 
-            // The samples should be attached to the slider tail, however this can only be done after LegacyLastTick is removed otherwise they would play earlier than they're intended to.
+            // The samples should be attached to the slider tail, however this can only be done if LastTick is removed otherwise they would play earlier than they're intended to.
+            // (see mapping logic in `CreateNestedHitObjects` above)
+            //
             // For now, the samples are played by the slider itself at the correct end time.
             TailSamples = this.GetNodeSamples(repeatCount + 1);
         }

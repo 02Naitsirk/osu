@@ -4,16 +4,28 @@
 using System.Threading;
 using System.Threading.Tasks;
 using osu.Game.Database;
-using osu.Game.Users;
+using osu.Game.Online.API.Requests.Responses;
 
 namespace osu.Game.Tests.Visual
 {
-    public class TestUserLookupCache : UserLookupCache
+    public partial class TestUserLookupCache : UserLookupCache
     {
-        protected override Task<User> ComputeValueAsync(int lookup, CancellationToken token = default) => Task.FromResult(new User
+        /// <summary>
+        /// A special user ID which <see cref="ComputeValueAsync"/> would return a <see langword="null"/> <see cref="APIUser"/> for.
+        /// As a simulation to what a regular <see cref="UserLookupCache"/> would return in the case of failing to fetch the user.
+        /// </summary>
+        public const int UNRESOLVED_USER_ID = -1;
+
+        protected override Task<APIUser?> ComputeValueAsync(int lookup, CancellationToken token = default)
         {
-            Id = lookup,
-            Username = $"User {lookup}"
-        });
+            if (lookup == UNRESOLVED_USER_ID)
+                return Task.FromResult<APIUser?>(null);
+
+            return Task.FromResult<APIUser?>(new APIUser
+            {
+                Id = lookup,
+                Username = $"User {lookup}"
+            });
+        }
     }
 }

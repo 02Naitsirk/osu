@@ -1,9 +1,10 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System.Linq;
 using NUnit.Framework;
-using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -22,18 +23,14 @@ using Direction = osu.Game.Rulesets.Catch.UI.Direction;
 
 namespace osu.Game.Rulesets.Catch.Tests
 {
-    public class TestSceneCatchSkinConfiguration : OsuTestScene
+    public partial class TestSceneCatchSkinConfiguration : OsuTestScene
     {
-        [Cached]
-        private readonly DroppedObjectContainer droppedObjectContainer;
-
         private Catcher catcher;
 
         private readonly Container container;
 
         public TestSceneCatchSkinConfiguration()
         {
-            Add(droppedObjectContainer = new DroppedObjectContainer());
             Add(container = new Container { RelativeSizeAxes = Axes.Both });
         }
 
@@ -46,7 +43,7 @@ namespace osu.Game.Rulesets.Catch.Tests
                 var skin = new TestSkin { FlipCatcherPlate = flip };
                 container.Child = new SkinProvidingContainer(skin)
                 {
-                    Child = catcher = new Catcher(new Container())
+                    Child = catcher = new Catcher(new DroppedObjectContainer())
                     {
                         Anchor = Anchor.Centre
                     }
@@ -90,12 +87,12 @@ namespace osu.Game.Rulesets.Catch.Tests
             });
         }
 
-        private class TestSkin : DefaultSkin
+        private class TestSkin : TrianglesSkin
         {
             public bool FlipCatcherPlate { get; set; }
 
             public TestSkin()
-                : base(null)
+                : base(null!)
             {
             }
 

@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using osuTK;
 using osuTK.Graphics;
 using osu.Framework.Extensions.Color4Extensions;
@@ -25,7 +27,7 @@ using osu.Framework.Utils;
 
 namespace osu.Game.Overlays
 {
-    public class MedalOverlay : FocusedOverlayContainer
+    public partial class MedalOverlay : FocusedOverlayContainer
     {
         public const float DISC_SIZE = 400;
 
@@ -244,9 +246,13 @@ namespace osu.Game.Overlays
             }
         }
 
+        protected override void PopIn()
+        {
+            this.FadeIn(200);
+        }
+
         protected override void PopOut()
         {
-            base.PopOut();
             this.FadeOut(200);
         }
 
@@ -264,7 +270,7 @@ namespace osu.Game.Overlays
             Expire();
         }
 
-        private class BackgroundStrip : Container
+        private partial class BackgroundStrip : Container
         {
             public BackgroundStrip(float start, float end)
             {
@@ -284,7 +290,7 @@ namespace osu.Game.Overlays
             }
         }
 
-        private class MedalParticle : CircularContainer
+        private partial class MedalParticle : CircularContainer
         {
             private readonly float direction;
 

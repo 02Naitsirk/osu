@@ -9,7 +9,7 @@ using osuTK.Input;
 
 namespace osu.Game.Rulesets.Catch.Edit.Blueprints
 {
-    public class FruitPlacementBlueprint : CatchPlacementBlueprint<Fruit>
+    public partial class FruitPlacementBlueprint : CatchPlacementBlueprint<Fruit>
     {
         private readonly FruitOutline outline;
 
@@ -29,7 +29,8 @@ namespace osu.Game.Rulesets.Catch.Edit.Blueprints
         {
             base.Update();
 
-            outline.UpdateFrom(HitObjectContainer, HitObject);
+            outline.Position = CatchHitObjectUtils.GetStartPosition(HitObjectContainer, HitObject);
+            outline.UpdateFrom(HitObject);
         }
 
         protected override bool OnMouseDown(MouseDownEvent e)

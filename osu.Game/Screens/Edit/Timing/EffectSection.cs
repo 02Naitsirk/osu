@@ -3,35 +3,63 @@
 
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Graphics;
 using osu.Game.Beatmaps.ControlPoints;
+using osu.Game.Configuration;
 using osu.Game.Graphics.UserInterfaceV2;
+using osu.Game.Rulesets.UI.Scrolling;
 
 namespace osu.Game.Screens.Edit.Timing
 {
-    internal class EffectSection : Section<EffectControlPoint>
+    internal partial class EffectSection : Section<EffectControlPoint>
     {
-        private LabelledSwitchButton kiai;
-        private LabelledSwitchButton omitBarLine;
+        private LabelledSwitchButton kiai = null!;
+
+        private SliderWithTextBoxInput<double> scrollSpeedSlider = null!;
 
         [BackgroundDependencyLoader]
         private void load()
         {
-            Flow.AddRange(new[]
+            Flow.AddRange(new Drawable[]
             {
                 kiai = new LabelledSwitchButton { Label = "Kiai Time" },
-                omitBarLine = new LabelledSwitchButton { Label = "Skip Bar Line" },
+                scrollSpeedSlider = new SliderWithTextBoxInput<double>("Scroll Speed")
+                {
+                    Current = new EffectControlPoint().ScrollSpeedBindable,
+                    KeyboardStep = 0.1f
+                }
             });
         }
 
-        protected override void OnControlPointChanged(ValueChangedEvent<EffectControlPoint> point)
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+
+            kiai.Current.BindValueChanged(_ => saveChanges());
+            scrollSpeedSlider.Current.BindValueChanged(_ => saveChanges());
+
+            var drawableRuleset = Beatmap.BeatmapInfo.Ruleset.CreateInstance().CreateDrawableRulesetWith(Beatmap.PlayableBeatmap);
+            if (drawableRuleset is not IDrawableScrollingRuleset scrollingRuleset || scrollingRuleset.VisualisationMethod == ScrollVisualisationMethod.Constant)
+                scrollSpeedSlider.Hide();
+
+            void saveChanges()
+            {
+                if (!isRebinding) ChangeHandler?.SaveState();
+            }
+        }
+
+        private bool isRebinding;
+
+        protected override void OnControlPointChanged(ValueChangedEvent<EffectControlPoint?> point)
         {
             if (point.NewValue != null)
             {
-                kiai.Current = point.NewValue.KiaiModeBindable;
-                kiai.Current.BindValueChanged(_ => ChangeHandler?.SaveState());
+                isRebinding = true;
 
-                omitBarLine.Current = point.NewValue.OmitFirstBarLineBindable;
-                omitBarLine.Current.BindValueChanged(_ => ChangeHandler?.SaveState());
+                kiai.Current = point.NewValue.KiaiModeBindable;
+                scrollSpeedSlider.Current = point.NewValue.ScrollSpeedBindable;
+
+                isRebinding = false;
             }
         }
 
@@ -42,7 +70,7 @@ namespace osu.Game.Screens.Edit.Timing
             return new EffectControlPoint
             {
                 KiaiMode = reference.KiaiMode,
-                OmitFirstBarLine = reference.OmitFirstBarLine
+                ScrollSpeed = reference.ScrollSpeed,
             };
         }
     }

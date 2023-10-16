@@ -5,19 +5,18 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Framework.Platform;
 using osu.Game.Tournament.Components;
 using osu.Game.Tournament.Models;
 using osuTK;
 
 namespace osu.Game.Tournament.Screens.TeamIntro
 {
-    public class TeamIntroScreen : TournamentMatchScreen, IProvideVideo
+    public partial class TeamIntroScreen : TournamentMatchScreen
     {
-        private Container mainContainer;
+        private Container mainContainer = null!;
 
         [BackgroundDependencyLoader]
-        private void load(Storage storage)
+        private void load()
         {
             RelativeSizeAxes = Axes.Both;
 
@@ -35,7 +34,7 @@ namespace osu.Game.Tournament.Screens.TeamIntro
             };
         }
 
-        protected override void CurrentMatchChanged(ValueChangedEvent<TournamentMatch> match)
+        protected override void CurrentMatchChanged(ValueChangedEvent<TournamentMatch?> match)
         {
             base.CurrentMatchChanged(match);
 

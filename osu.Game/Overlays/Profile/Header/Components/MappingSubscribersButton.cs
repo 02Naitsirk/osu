@@ -5,22 +5,22 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
-using osu.Game.Users;
+using osu.Game.Resources.Localisation.Web;
 
 namespace osu.Game.Overlays.Profile.Header.Components
 {
-    public class MappingSubscribersButton : ProfileHeaderStatisticsButton
+    public partial class MappingSubscribersButton : ProfileHeaderStatisticsButton
     {
-        public readonly Bindable<User> User = new Bindable<User>();
+        public readonly Bindable<UserProfileData?> User = new Bindable<UserProfileData?>();
 
-        public override LocalisableString TooltipText => "mapping subscribers";
+        public override LocalisableString TooltipText => FollowsStrings.MappingFollowers;
 
         protected override IconUsage Icon => FontAwesome.Solid.Bell;
 
         [BackgroundDependencyLoader]
         private void load()
         {
-            User.BindValueChanged(user => SetValue(user.NewValue?.MappingFollowerCount ?? 0), true);
+            User.BindValueChanged(user => SetValue(user.NewValue?.User.MappingFollowerCount ?? 0), true);
         }
     }
 }

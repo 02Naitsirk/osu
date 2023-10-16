@@ -7,7 +7,7 @@ using osu.Game.Overlays.Dashboard.Friends;
 
 namespace osu.Game.Overlays
 {
-    public class DashboardOverlay : TabbableOnlineOverlay<DashboardOverlayHeader, DashboardOverlayTabs>
+    public partial class DashboardOverlay : TabbableOnlineOverlay<DashboardOverlayHeader, DashboardOverlayTabs>
     {
         public DashboardOverlay()
             : base(OverlayColourScheme.Purple)
@@ -15,6 +15,8 @@ namespace osu.Game.Overlays
         }
 
         protected override DashboardOverlayHeader CreateHeader() => new DashboardOverlayHeader();
+
+        public override bool AcceptsFocus => false;
 
         protected override void CreateDisplayToLoad(DashboardOverlayTabs tab)
         {

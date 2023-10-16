@@ -11,7 +11,7 @@ using osuTK.Graphics;
 
 namespace osu.Game.Tests.Visual.UserInterface
 {
-    public class TestSceneOverlayHeader : OsuTestScene
+    public partial class TestSceneOverlayHeader : OsuTestScene
     {
         private readonly FillFlowContainer flow;
 
@@ -68,7 +68,7 @@ namespace osu.Game.Tests.Visual.UserInterface
             });
         }
 
-        private class ColourProvidedContainer : Container
+        private partial class ColourProvidedContainer : Container
         {
             [Cached]
             private readonly OverlayColourProvider colourProvider;
@@ -83,7 +83,7 @@ namespace osu.Game.Tests.Visual.UserInterface
             }
         }
 
-        private class TestNoBackgroundHeader : OverlayHeader
+        private partial class TestNoBackgroundHeader : OverlayHeader
         {
             protected override OverlayTitle CreateTitle() => new TestTitle();
 
@@ -93,20 +93,20 @@ namespace osu.Game.Tests.Visual.UserInterface
             }
         }
 
-        private class TestNoControlHeader : OverlayHeader
+        private partial class TestNoControlHeader : OverlayHeader
         {
             protected override Drawable CreateBackground() => new OverlayHeaderBackground(@"Headers/changelog");
 
             protected override OverlayTitle CreateTitle() => new TestTitle();
         }
 
-        private class TestStringTabControlHeader : TabControlOverlayHeader<string>
+        private partial class TestStringTabControlHeader : TabControlOverlayHeader<string>
         {
             protected override Drawable CreateBackground() => new OverlayHeaderBackground(@"Headers/news");
 
             protected override OverlayTitle CreateTitle() => new TestTitle();
 
-            protected override Drawable CreateTitleContent() => new OverlayRulesetSelector();
+            protected override Drawable CreateTabControlContent() => new OverlayRulesetSelector();
 
             public TestStringTabControlHeader()
             {
@@ -115,7 +115,7 @@ namespace osu.Game.Tests.Visual.UserInterface
             }
         }
 
-        private class TestEnumTabControlHeader : TabControlOverlayHeader<TestEnum>
+        private partial class TestEnumTabControlHeader : TabControlOverlayHeader<TestEnum>
         {
             public TestEnumTabControlHeader()
             {
@@ -134,7 +134,7 @@ namespace osu.Game.Tests.Visual.UserInterface
             Tabs
         }
 
-        private class TestBreadcrumbControlHeader : BreadcrumbControlOverlayHeader
+        private partial class TestBreadcrumbControlHeader : BreadcrumbControlOverlayHeader
         {
             protected override OverlayTitle CreateTitle() => new TestTitle();
 
@@ -148,7 +148,7 @@ namespace osu.Game.Tests.Visual.UserInterface
             }
         }
 
-        private class TestTitle : OverlayTitle
+        private partial class TestTitle : OverlayTitle
         {
             public TestTitle()
             {

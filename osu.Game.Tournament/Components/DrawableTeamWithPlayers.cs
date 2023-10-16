@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Linq;
@@ -6,15 +6,14 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Game.Graphics;
 using osu.Game.Tournament.Models;
-using osu.Game.Users;
 using osuTK;
 using osuTK.Graphics;
 
 namespace osu.Game.Tournament.Components
 {
-    public class DrawableTeamWithPlayers : CompositeDrawable
+    public partial class DrawableTeamWithPlayers : CompositeDrawable
     {
-        public DrawableTeamWithPlayers(TournamentTeam team, TeamColour colour)
+        public DrawableTeamWithPlayers(TournamentTeam? team, TeamColour colour)
         {
             AutoSizeAxes = Axes.Both;
 
@@ -54,7 +53,7 @@ namespace osu.Game.Tournament.Components
                 },
             };
 
-            TournamentSpriteText createPlayerText(User p) =>
+            TournamentSpriteText createPlayerText(TournamentUser p) =>
                 new TournamentSpriteText
                 {
                     Text = p.Username,

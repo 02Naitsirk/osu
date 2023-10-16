@@ -1,6 +1,7 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
@@ -9,10 +10,12 @@ using osu.Framework.Graphics.Shapes;
 using osu.Game.Beatmaps;
 using osu.Game.Graphics;
 using osu.Game.Graphics.Sprites;
+using osu.Game.Online.API.Requests.Responses;
+using osu.Game.Overlays.BeatmapListing;
 
 namespace osu.Game.Overlays.BeatmapSet
 {
-    public class Info : Container
+    public partial class Info : Container
     {
         private const float metadata_width = 175;
         private const float spacing = 20;
@@ -22,9 +25,9 @@ namespace osu.Game.Overlays.BeatmapSet
         private readonly Box background;
         private readonly SuccessRate successRate;
 
-        public readonly Bindable<BeatmapSetInfo> BeatmapSet = new Bindable<BeatmapSetInfo>();
+        public readonly Bindable<APIBeatmapSet> BeatmapSet = new Bindable<APIBeatmapSet>();
 
-        public BeatmapInfo Beatmap
+        public APIBeatmap? BeatmapInfo
         {
             get => successRate.Beatmap;
             set => successRate.Beatmap = value;
@@ -32,7 +35,10 @@ namespace osu.Game.Overlays.BeatmapSet
 
         public Info()
         {
-            MetadataSection source, tags, genre, language;
+            MetadataSectionNominators nominators;
+            MetadataSection source, tags;
+            MetadataSectionGenre genre;
+            MetadataSectionLanguage language;
             OsuSpriteText notRankedPlaceholder;
 
             RelativeSizeAxes = Axes.X;
@@ -47,7 +53,7 @@ namespace osu.Game.Overlays.BeatmapSet
                 new Container
                 {
                     RelativeSizeAxes = Axes.Both,
-                    Padding = new MarginPadding { Top = 15, Horizontal = BeatmapSetOverlay.X_PADDING },
+                    Padding = new MarginPadding { Top = 15, Horizontal = WaveOverlayContainer.HORIZONTAL_PADDING },
                     Children = new Drawable[]
                     {
                         new Container
@@ -57,7 +63,7 @@ namespace osu.Game.Overlays.BeatmapSet
                             Child = new Container
                             {
                                 RelativeSizeAxes = Axes.Both,
-                                Child = new MetadataSection(MetadataType.Description),
+                                Child = new MetadataSectionDescription(),
                             },
                         },
                         new Container
@@ -68,17 +74,19 @@ namespace osu.Game.Overlays.BeatmapSet
                             Width = metadata_width,
                             Padding = new MarginPadding { Horizontal = 10 },
                             Margin = new MarginPadding { Right = BeatmapSetOverlay.RIGHT_WIDTH + spacing },
+                            Masking = true,
                             Child = new FillFlowContainer
                             {
                                 RelativeSizeAxes = Axes.X,
                                 AutoSizeAxes = Axes.Y,
                                 Direction = FillDirection.Full,
-                                Children = new[]
+                                Children = new Drawable[]
                                 {
-                                    source = new MetadataSection(MetadataType.Source),
-                                    genre = new MetadataSection(MetadataType.Genre) { Width = 0.5f },
-                                    language = new MetadataSection(MetadataType.Language) { Width = 0.5f },
-                                    tags = new MetadataSection(MetadataType.Tags),
+                                    nominators = new MetadataSectionNominators(),
+                                    source = new MetadataSectionSource(),
+                                    genre = new MetadataSectionGenre { Width = 0.5f },
+                                    language = new MetadataSectionLanguage { Width = 0.5f },
+                                    tags = new MetadataSectionTags(),
                                 },
                             },
                         },
@@ -115,11 +123,12 @@ namespace osu.Game.Overlays.BeatmapSet
 
             BeatmapSet.ValueChanged += b =>
             {
-                source.Text = b.NewValue?.Metadata.Source ?? string.Empty;
-                tags.Text = b.NewValue?.Metadata.Tags ?? string.Empty;
-                genre.Text = b.NewValue?.OnlineInfo?.Genre?.Name ?? string.Empty;
-                language.Text = b.NewValue?.OnlineInfo?.Language?.Name ?? string.Empty;
-                var setHasLeaderboard = b.NewValue?.OnlineInfo?.Status > 0;
+                nominators.Metadata = (b.NewValue?.CurrentNominations ?? Array.Empty<BeatmapSetOnlineNomination>(), b.NewValue?.RelatedUsers ?? Array.Empty<APIUser>());
+                source.Metadata = b.NewValue?.Source ?? string.Empty;
+                tags.Metadata = b.NewValue?.Tags ?? string.Empty;
+                genre.Metadata = b.NewValue?.Genre ?? new BeatmapSetOnlineGenre { Id = (int)SearchGenre.Unspecified };
+                language.Metadata = b.NewValue?.Language ?? new BeatmapSetOnlineLanguage { Id = (int)SearchLanguage.Unspecified };
+                bool setHasLeaderboard = b.NewValue?.Status > 0;
                 successRate.Alpha = setHasLeaderboard ? 1 : 0;
                 notRankedPlaceholder.Alpha = setHasLeaderboard ? 0 : 1;
                 Height = setHasLeaderboard ? 270 : base_height;

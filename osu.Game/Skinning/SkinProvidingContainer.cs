@@ -3,56 +3,62 @@
 
 using System;
 using System.Collections.Generic;
-using JetBrains.Annotations;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Audio.Sample;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Framework.Graphics.OpenGL.Textures;
 using osu.Framework.Graphics.Textures;
 using osu.Game.Audio;
 
 namespace osu.Game.Skinning
 {
     /// <summary>
-    /// A container which adds a local <see cref="ISkinSource"/> to the hierarchy.
+    /// A container which adds a provided <see cref="ISkin"/> to the DI skin lookup hierarchy.
     /// </summary>
-    public class SkinProvidingContainer : Container, ISkinSource
+    /// <remarks>
+    /// This container will expose an <see cref="ISkinSource"/> to its children.
+    /// The source will first consider the skin provided via the constructor (if any), then fallback
+    /// to any <see cref="ISkinSource"/> providers in the parent DI hierarchy.
+    /// </remarks>
+    public partial class SkinProvidingContainer : Container, ISkinSource
     {
-        public event Action SourceChanged;
+        public event Action? SourceChanged;
 
-        [CanBeNull]
-        protected ISkinSource ParentSource { get; private set; }
+        protected ISkinSource? ParentSource { get; private set; }
 
         /// <summary>
         /// Whether falling back to parent <see cref="ISkinSource"/>s is allowed in this container.
         /// </summary>
         protected virtual bool AllowFallingBackToParent => true;
 
-        protected virtual bool AllowDrawableLookup(ISkinComponent component) => true;
+        protected virtual bool AllowDrawableLookup(ISkinComponentLookup lookup) => true;
 
         protected virtual bool AllowTextureLookup(string componentName) => true;
 
-        protected virtual bool AllowSampleLookup(ISampleInfo componentName) => true;
+        protected virtual bool AllowSampleLookup(ISampleInfo sampleInfo) => true;
 
         protected virtual bool AllowConfigurationLookup => true;
 
         protected virtual bool AllowColourLookup => true;
 
+        private readonly object sourceSetLock = new object();
+
         /// <summary>
         /// A dictionary mapping each <see cref="ISkin"/> source to a wrapper which handles lookup allowances.
         /// </summary>
-        private readonly List<(ISkin skin, DisableableSkinSource wrapped)> skinSources = new List<(ISkin, DisableableSkinSource)>();
+        private (ISkin skin, DisableableSkinSource wrapped)[] skinSources = Array.Empty<(ISkin skin, DisableableSkinSource wrapped)>();
 
         /// <summary>
         /// Constructs a new <see cref="SkinProvidingContainer"/> initialised with a single skin source.
         /// </summary>
-        public SkinProvidingContainer([CanBeNull] ISkin skin)
+        public SkinProvidingContainer(ISkin? skin)
             : this()
         {
             if (skin != null)
-                AddSource(skin);
+                SetSources(new[] { skin });
         }
 
         /// <summary>
@@ -78,7 +84,7 @@ namespace osu.Game.Skinning
             return dependencies;
         }
 
-        public ISkin FindProvider(Func<ISkin, bool> lookupFunction)
+        public ISkin? FindProvider(Func<ISkin, bool> lookupFunction)
         {
             foreach (var (skin, lookupWrapper) in skinSources)
             {
@@ -107,26 +113,26 @@ namespace osu.Game.Skinning
             }
         }
 
-        public Drawable GetDrawableComponent(ISkinComponent component)
+        public Drawable? GetDrawableComponent(ISkinComponentLookup lookup)
         {
             foreach (var (_, lookupWrapper) in skinSources)
             {
-                Drawable sourceDrawable;
-                if ((sourceDrawable = lookupWrapper.GetDrawableComponent(component)) != null)
+                Drawable? sourceDrawable;
+                if ((sourceDrawable = lookupWrapper.GetDrawableComponent(lookup)) != null)
                     return sourceDrawable;
             }
 
             if (!AllowFallingBackToParent)
                 return null;
 
-            return ParentSource?.GetDrawableComponent(component);
+            return ParentSource?.GetDrawableComponent(lookup);
         }
 
-        public Texture GetTexture(string componentName, WrapMode wrapModeS, WrapMode wrapModeT)
+        public Texture? GetTexture(string componentName, WrapMode wrapModeS, WrapMode wrapModeT)
         {
             foreach (var (_, lookupWrapper) in skinSources)
             {
-                Texture sourceTexture;
+                Texture? sourceTexture;
                 if ((sourceTexture = lookupWrapper.GetTexture(componentName, wrapModeS, wrapModeT)) != null)
                     return sourceTexture;
             }
@@ -137,11 +143,11 @@ namespace osu.Game.Skinning
             return ParentSource?.GetTexture(componentName, wrapModeS, wrapModeT);
         }
 
-        public ISample GetSample(ISampleInfo sampleInfo)
+        public ISample? GetSample(ISampleInfo sampleInfo)
         {
             foreach (var (_, lookupWrapper) in skinSources)
             {
-                ISample sourceSample;
+                ISample? sourceSample;
                 if ((sourceSample = lookupWrapper.GetSample(sampleInfo)) != null)
                     return sourceSample;
             }
@@ -152,65 +158,69 @@ namespace osu.Game.Skinning
             return ParentSource?.GetSample(sampleInfo);
         }
 
-        public IBindable<TValue> GetConfig<TLookup, TValue>(TLookup lookup)
+        public IBindable<TValue>? GetConfig<TLookup, TValue>(TLookup lookup)
+            where TLookup : notnull
+            where TValue : notnull
         {
-            foreach (var (_, lookupWrapper) in skinSources)
+            try
             {
-                IBindable<TValue> bindable;
-                if ((bindable = lookupWrapper.GetConfig<TLookup, TValue>(lookup)) != null)
-                    return bindable;
+                Skin.LogLookupDebug(this, lookup, Skin.LookupDebugType.Enter);
+
+                foreach (var (_, lookupWrapper) in skinSources)
+                {
+                    IBindable<TValue>? bindable;
+                    if ((bindable = lookupWrapper.GetConfig<TLookup, TValue>(lookup)) != null)
+                        return bindable;
+                }
+
+                if (!AllowFallingBackToParent)
+                    return null;
+
+                return ParentSource?.GetConfig<TLookup, TValue>(lookup);
             }
-
-            if (!AllowFallingBackToParent)
-                return null;
-
-            return ParentSource?.GetConfig<TLookup, TValue>(lookup);
+            finally
+            {
+                Skin.LogLookupDebug(this, lookup, Skin.LookupDebugType.Exit);
+            }
         }
 
         /// <summary>
-        /// Add a new skin to this provider. Will be added to the end of the lookup order precedence.
+        /// Replace the sources used for lookups in this container.
         /// </summary>
-        /// <param name="skin">The skin to add.</param>
-        protected void AddSource(ISkin skin)
+        /// <remarks>
+        /// This does not implicitly fire a <see cref="SourceChanged"/> event. Consider calling <see cref="TriggerSourceChanged"/> if required.
+        /// </remarks>
+        /// <param name="sources">The new sources.</param>
+        protected void SetSources(IEnumerable<ISkin> sources)
         {
-            skinSources.Add((skin, new DisableableSkinSource(skin, this)));
+            lock (sourceSetLock)
+            {
+                foreach (var skin in skinSources)
+                {
+                    if (skin.skin is ISkinSource source)
+                        source.SourceChanged -= TriggerSourceChanged;
+                }
 
-            if (skin is ISkinSource source)
-                source.SourceChanged += TriggerSourceChanged;
+                skinSources = sources.Select(skin => (skin, new DisableableSkinSource(skin, this))).ToArray();
+
+                foreach (var skin in skinSources)
+                {
+                    if (skin.skin is ISkinSource source)
+                        source.SourceChanged += TriggerSourceChanged;
+                }
+            }
         }
 
         /// <summary>
-        /// Remove a skin from this provider.
-        /// </summary>
-        /// <param name="skin">The skin to remove.</param>
-        protected void RemoveSource(ISkin skin)
-        {
-            if (skinSources.RemoveAll(s => s.skin == skin) == 0)
-                return;
-
-            if (skin is ISkinSource source)
-                source.SourceChanged -= TriggerSourceChanged;
-        }
-
-        /// <summary>
-        /// Clears all skin sources.
-        /// </summary>
-        protected void ResetSources()
-        {
-            foreach (var i in skinSources.ToArray())
-                RemoveSource(i.skin);
-        }
-
-        /// <summary>
-        /// Invoked when any source has changed (either <see cref="ParentSource"/> or a source registered via <see cref="AddSource"/>).
+        /// Invoked after any consumed source change, before the external <see cref="SourceChanged"/> event is fired.
         /// This is also invoked once initially during <see cref="CreateChildDependencies"/> to ensure sources are ready for children consumption.
         /// </summary>
-        protected virtual void OnSourceChanged() { }
+        protected virtual void RefreshSources() { }
 
         protected void TriggerSourceChanged()
         {
             // Expose to implementations, giving them a chance to react before notifying external consumers.
-            OnSourceChanged();
+            RefreshSources();
 
             SourceChanged?.Invoke();
         }
@@ -243,15 +253,15 @@ namespace osu.Game.Skinning
                 this.provider = provider;
             }
 
-            public Drawable GetDrawableComponent(ISkinComponent component)
+            public Drawable? GetDrawableComponent(ISkinComponentLookup lookup)
             {
-                if (provider.AllowDrawableLookup(component))
-                    return skin.GetDrawableComponent(component);
+                if (provider.AllowDrawableLookup(lookup))
+                    return skin.GetDrawableComponent(lookup);
 
                 return null;
             }
 
-            public Texture GetTexture(string componentName, WrapMode wrapModeS, WrapMode wrapModeT)
+            public Texture? GetTexture(string componentName, WrapMode wrapModeS, WrapMode wrapModeT)
             {
                 if (provider.AllowTextureLookup(componentName))
                     return skin.GetTexture(componentName, wrapModeS, wrapModeT);
@@ -259,7 +269,7 @@ namespace osu.Game.Skinning
                 return null;
             }
 
-            public ISample GetSample(ISampleInfo sampleInfo)
+            public ISample? GetSample(ISampleInfo sampleInfo)
             {
                 if (provider.AllowSampleLookup(sampleInfo))
                     return skin.GetSample(sampleInfo);
@@ -267,26 +277,40 @@ namespace osu.Game.Skinning
                 return null;
             }
 
-            public IBindable<TValue> GetConfig<TLookup, TValue>(TLookup lookup)
+            public IBindable<TValue>? GetConfig<TLookup, TValue>(TLookup lookup)
+                where TLookup : notnull
+                where TValue : notnull
             {
-                switch (lookup)
+                try
                 {
-                    case GlobalSkinColours _:
-                    case SkinCustomColourLookup _:
-                        if (provider.AllowColourLookup)
-                            return skin.GetConfig<TLookup, TValue>(lookup);
+                    Skin.LogLookupDebug(this, lookup, Skin.LookupDebugType.Enter);
 
-                        break;
+                    switch (lookup)
+                    {
+                        case GlobalSkinColours:
+                        case SkinComboColourLookup:
+                        case SkinCustomColourLookup:
+                            if (provider.AllowColourLookup)
+                                return skin.GetConfig<TLookup, TValue>(lookup);
 
-                    default:
-                        if (provider.AllowConfigurationLookup)
-                            return skin.GetConfig<TLookup, TValue>(lookup);
+                            break;
 
-                        break;
+                        default:
+                            if (provider.AllowConfigurationLookup)
+                                return skin.GetConfig<TLookup, TValue>(lookup);
+
+                            break;
+                    }
+
+                    return null;
                 }
-
-                return null;
+                finally
+                {
+                    Skin.LogLookupDebug(this, lookup, Skin.LookupDebugType.Exit);
+                }
             }
+
+            public override string ToString() => $"{GetType().ReadableName()} {{ Skin: {skin} }}";
         }
     }
 }

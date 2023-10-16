@@ -1,19 +1,23 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using Newtonsoft.Json;
 using osu.Game.Beatmaps;
 using osu.Game.Beatmaps.Formats;
 using osu.Game.Beatmaps.Legacy;
 using osu.Game.IO.Legacy;
+using osu.Game.Online.API.Requests.Responses;
 using osu.Game.Replays;
 using osu.Game.Replays.Legacy;
 using osu.Game.Rulesets;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Replays;
-using osu.Game.Users;
 using SharpCompress.Compressors.LZMA;
 
 namespace osu.Game.Scoring.Legacy
@@ -22,6 +26,8 @@ namespace osu.Game.Scoring.Legacy
     {
         private IBeatmap currentBeatmap;
         private Ruleset currentRuleset;
+
+        private float beatmapOffset;
 
         public Score Parse(Stream stream)
         {
@@ -39,13 +45,25 @@ namespace osu.Game.Scoring.Legacy
 
                 score.ScoreInfo = scoreInfo;
 
-                var version = sr.ReadInt32();
+                int version = sr.ReadInt32();
 
-                workingBeatmap = GetBeatmap(sr.ReadString());
+                scoreInfo.IsLegacyScore = version < LegacyScoreEncoder.FIRST_LAZER_VERSION;
+
+                // TotalScoreVersion gets initialised to LATEST_VERSION.
+                // In the case where the incoming score has either an osu!stable or old lazer version, we need
+                // to mark it with the correct version increment to trigger reprocessing to new standardised scoring.
+                //
+                // See StandardisedScoreMigrationTools.ShouldMigrateToNewStandardised().
+                scoreInfo.TotalScoreVersion = version < 30000002 ? 30000001 : LegacyScoreEncoder.LATEST_VERSION;
+
+                string beatmapHash = sr.ReadString();
+
+                workingBeatmap = GetBeatmap(beatmapHash);
+
                 if (workingBeatmap is DummyWorkingBeatmap)
-                    throw new BeatmapNotFoundException();
+                    throw new BeatmapNotFoundException(beatmapHash);
 
-                scoreInfo.User = new User { Username = sr.ReadString() };
+                scoreInfo.User = new APIUser { Username = sr.ReadString() };
 
                 // MD5Hash
                 sr.ReadString();
@@ -67,64 +85,94 @@ namespace osu.Game.Scoring.Legacy
 
                 // lazer replays get a really high version number.
                 if (version < LegacyScoreEncoder.FIRST_LAZER_VERSION)
-                    scoreInfo.Mods = scoreInfo.Mods.Append(currentRuleset.GetAllMods().OfType<ModClassic>().Single()).ToArray();
+                    scoreInfo.Mods = scoreInfo.Mods.Append(currentRuleset.CreateMod<ModClassic>()).ToArray();
 
                 currentBeatmap = workingBeatmap.GetPlayableBeatmap(currentRuleset.RulesetInfo, scoreInfo.Mods);
-                scoreInfo.Beatmap = currentBeatmap.BeatmapInfo;
+                scoreInfo.BeatmapInfo = currentBeatmap.BeatmapInfo;
+
+                // As this is baked into hitobject timing (see `LegacyBeatmapDecoder`) we also need to apply this to replay frame timing.
+                beatmapOffset = currentBeatmap.BeatmapInfo.BeatmapVersion < 5 ? LegacyBeatmapDecoder.EARLY_VERSION_TIMING_OFFSET : 0;
 
                 /* score.HpGraphString = */
                 sr.ReadString();
 
                 scoreInfo.Date = sr.ReadDateTime();
 
-                var compressedReplay = sr.ReadByteArray();
+                byte[] compressedReplay = sr.ReadByteArray();
 
                 if (version >= 20140721)
-                    scoreInfo.OnlineScoreID = sr.ReadInt64();
+                    scoreInfo.OnlineID = sr.ReadInt64();
                 else if (version >= 20121008)
-                    scoreInfo.OnlineScoreID = sr.ReadInt32();
+                    scoreInfo.OnlineID = sr.ReadInt32();
 
-                if (scoreInfo.OnlineScoreID <= 0)
-                    scoreInfo.OnlineScoreID = null;
+                byte[] compressedScoreInfo = null;
+
+                if (version >= 30000001)
+                    compressedScoreInfo = sr.ReadByteArray();
 
                 if (compressedReplay?.Length > 0)
+                    readCompressedData(compressedReplay, reader => readLegacyReplay(score.Replay, reader));
+
+                if (compressedScoreInfo?.Length > 0)
                 {
-                    using (var replayInStream = new MemoryStream(compressedReplay))
+                    readCompressedData(compressedScoreInfo, reader =>
                     {
-                        byte[] properties = new byte[5];
-                        if (replayInStream.Read(properties, 0, 5) != 5)
-                            throw new IOException("input .lzma is too short");
+                        LegacyReplaySoloScoreInfo readScore = JsonConvert.DeserializeObject<LegacyReplaySoloScoreInfo>(reader.ReadToEnd());
 
-                        long outSize = 0;
+                        Debug.Assert(readScore != null);
 
-                        for (int i = 0; i < 8; i++)
-                        {
-                            int v = replayInStream.ReadByte();
-                            if (v < 0)
-                                throw new IOException("Can't Read 1");
-
-                            outSize |= (long)(byte)v << (8 * i);
-                        }
-
-                        long compressedSize = replayInStream.Length - replayInStream.Position;
-
-                        using (var lzma = new LzmaStream(properties, replayInStream, compressedSize, outSize))
-                        using (var reader = new StreamReader(lzma))
-                            readLegacyReplay(score.Replay, reader);
-                    }
+                        score.ScoreInfo.Statistics = readScore.Statistics;
+                        score.ScoreInfo.MaximumStatistics = readScore.MaximumStatistics;
+                        score.ScoreInfo.Mods = readScore.Mods.Select(m => m.ToMod(currentRuleset)).ToArray();
+                    });
                 }
             }
 
-            CalculateAccuracy(score.ScoreInfo);
+            PopulateAccuracy(score.ScoreInfo);
 
             // before returning for database import, we must restore the database-sourced BeatmapInfo.
             // if not, the clone operation in GetPlayableBeatmap will cause a dereference and subsequent database exception.
-            score.ScoreInfo.Beatmap = workingBeatmap.BeatmapInfo;
+            score.ScoreInfo.BeatmapInfo = workingBeatmap.BeatmapInfo;
+            score.ScoreInfo.BeatmapHash = workingBeatmap.BeatmapInfo.Hash;
 
             return score;
         }
 
-        protected void CalculateAccuracy(ScoreInfo score)
+        private void readCompressedData(byte[] data, Action<StreamReader> readFunc)
+        {
+            using (var replayInStream = new MemoryStream(data))
+            {
+                byte[] properties = new byte[5];
+                if (replayInStream.Read(properties, 0, 5) != 5)
+                    throw new IOException("input .lzma is too short");
+
+                long outSize = 0;
+
+                for (int i = 0; i < 8; i++)
+                {
+                    int v = replayInStream.ReadByte();
+                    if (v < 0)
+                        throw new IOException("Can't Read 1");
+
+                    outSize |= (long)(byte)v << (8 * i);
+                }
+
+                long compressedSize = replayInStream.Length - replayInStream.Position;
+
+                using (var lzma = new LzmaStream(properties, replayInStream, compressedSize, outSize))
+                using (var reader = new StreamReader(lzma))
+                    readFunc(reader);
+            }
+        }
+
+        /// <summary>
+        /// Populates the accuracy of a given <see cref="ScoreInfo"/> from its contained statistics.
+        /// </summary>
+        /// <remarks>
+        /// Legacy use only.
+        /// </remarks>
+        /// <param name="score">The <see cref="ScoreInfo"/> to populate.</param>
+        public static void PopulateAccuracy(ScoreInfo score)
         {
             int countMiss = score.GetCountMiss() ?? 0;
             int count50 = score.GetCount50() ?? 0;
@@ -133,7 +181,7 @@ namespace osu.Game.Scoring.Legacy
             int countGeki = score.GetCountGeki() ?? 0;
             int countKatu = score.GetCountKatu() ?? 0;
 
-            switch (score.Ruleset.ID)
+            switch (score.Ruleset.OnlineID)
             {
                 case 0:
                 {
@@ -225,14 +273,14 @@ namespace osu.Game.Scoring.Legacy
 
         private void readLegacyReplay(Replay replay, StreamReader reader)
         {
-            float lastTime = 0;
+            float lastTime = beatmapOffset;
             ReplayFrame currentFrame = null;
 
-            var frames = reader.ReadToEnd().Split(',');
+            string[] frames = reader.ReadToEnd().Split(',');
 
-            for (var i = 0; i < frames.Length; i++)
+            for (int i = 0; i < frames.Length; i++)
             {
-                var split = frames[i].Split('|');
+                string[] split = frames[i].Split('|');
 
                 if (split.Length < 4)
                     continue;
@@ -243,9 +291,9 @@ namespace osu.Game.Scoring.Legacy
                     continue;
                 }
 
-                var diff = Parsing.ParseFloat(split[0]);
-                var mouseX = Parsing.ParseFloat(split[1], Parsing.MAX_COORDINATE_VALUE);
-                var mouseY = Parsing.ParseFloat(split[2], Parsing.MAX_COORDINATE_VALUE);
+                float diff = Parsing.ParseFloat(split[0]);
+                float mouseX = Parsing.ParseFloat(split[1], Parsing.MAX_COORDINATE_VALUE);
+                float mouseY = Parsing.ParseFloat(split[2], Parsing.MAX_COORDINATE_VALUE);
 
                 lastTime += diff;
 
@@ -299,9 +347,11 @@ namespace osu.Game.Scoring.Legacy
 
         public class BeatmapNotFoundException : Exception
         {
-            public BeatmapNotFoundException()
-                : base("No corresponding beatmap for the score could be found.")
+            public string Hash { get; }
+
+            public BeatmapNotFoundException(string hash)
             {
+                Hash = hash;
             }
         }
     }

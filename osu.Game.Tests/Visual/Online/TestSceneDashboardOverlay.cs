@@ -6,7 +6,7 @@ using osu.Game.Overlays;
 
 namespace osu.Game.Tests.Visual.Online
 {
-    public class TestSceneDashboardOverlay : OsuTestScene
+    public partial class TestSceneDashboardOverlay : OsuTestScene
     {
         protected override bool UseOnlineAPI => true;
 

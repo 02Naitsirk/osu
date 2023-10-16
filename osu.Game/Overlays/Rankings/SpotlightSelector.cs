@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
@@ -16,10 +18,13 @@ using System.Collections.Generic;
 using osu.Framework.Graphics.UserInterface;
 using osu.Game.Online.API.Requests;
 using osu.Framework.Extensions.Color4Extensions;
+using osu.Framework.Extensions.LocalisationExtensions;
+using osu.Framework.Localisation;
+using osu.Game.Resources.Localisation.Web;
 
 namespace osu.Game.Overlays.Rankings
 {
-    public class SpotlightSelector : CompositeDrawable, IHasCurrentValue<APISpotlight>
+    public partial class SpotlightSelector : CompositeDrawable, IHasCurrentValue<APISpotlight>
     {
         private readonly BindableWithCurrent<APISpotlight> current = new BindableWithCurrent<APISpotlight>();
         public readonly Bindable<RankingsSortCriteria> Sort = new Bindable<RankingsSortCriteria>();
@@ -58,7 +63,7 @@ namespace osu.Game.Overlays.Rankings
                 {
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
-                    Padding = new MarginPadding { Horizontal = UserProfileOverlay.CONTENT_X_MARGIN },
+                    Padding = new MarginPadding { Horizontal = WaveOverlayContainer.HORIZONTAL_PADDING },
                     Child = new FillFlowContainer
                     {
                         RelativeSizeAxes = Axes.X,
@@ -92,10 +97,10 @@ namespace osu.Game.Overlays.Rankings
                                         Margin = new MarginPadding { Bottom = 5 },
                                         Children = new Drawable[]
                                         {
-                                            startDateColumn = new InfoColumn(@"Start Date"),
-                                            endDateColumn = new InfoColumn(@"End Date"),
-                                            mapCountColumn = new InfoColumn(@"Map Count"),
-                                            participantsColumn = new InfoColumn(@"Participants")
+                                            startDateColumn = new InfoColumn(RankingsStrings.SpotlightStartDate),
+                                            endDateColumn = new InfoColumn(RankingsStrings.SpotlightEndDate),
+                                            mapCountColumn = new InfoColumn(RankingsStrings.SpotlightMapCount),
+                                            participantsColumn = new InfoColumn(RankingsStrings.SpotlightParticipants)
                                         }
                                     },
                                     new RankingsSortTabControl
@@ -122,22 +127,22 @@ namespace osu.Game.Overlays.Rankings
         {
             startDateColumn.Value = dateToString(response.Spotlight.StartDate);
             endDateColumn.Value = dateToString(response.Spotlight.EndDate);
-            mapCountColumn.Value = response.BeatmapSets.Count.ToString();
-            participantsColumn.Value = response.Spotlight.Participants?.ToString("N0");
+            mapCountColumn.Value = response.BeatmapSets.Count.ToLocalisableString(@"N0");
+            participantsColumn.Value = response.Spotlight.Participants?.ToLocalisableString(@"N0") ?? default;
         }
 
-        private string dateToString(DateTimeOffset date) => date.ToString("yyyy-MM-dd");
+        private LocalisableString dateToString(DateTimeOffset date) => date.ToLocalisableString(@"yyyy-MM-dd");
 
-        private class InfoColumn : FillFlowContainer
+        private partial class InfoColumn : FillFlowContainer
         {
-            public string Value
+            public LocalisableString Value
             {
                 set => valueText.Text = value;
             }
 
             private readonly OsuSpriteText valueText;
 
-            public InfoColumn(string name)
+            public InfoColumn(LocalisableString name)
             {
                 AutoSizeAxes = Axes.Both;
                 Direction = FillDirection.Vertical;
@@ -170,24 +175,24 @@ namespace osu.Game.Overlays.Rankings
             }
         }
 
-        private class SpotlightsDropdown : OsuDropdown<APISpotlight>
+        private partial class SpotlightsDropdown : OsuDropdown<APISpotlight>
         {
-            private DropdownMenu menu;
+            private OsuDropdownMenu menu;
 
-            protected override DropdownMenu CreateMenu() => menu = base.CreateMenu().With(m => m.MaxHeight = 400);
+            protected override DropdownMenu CreateMenu() => menu = (OsuDropdownMenu)base.CreateMenu().With(m => m.MaxHeight = 400);
 
             protected override DropdownHeader CreateHeader() => new SpotlightsDropdownHeader();
 
             [BackgroundDependencyLoader]
             private void load(OverlayColourProvider colourProvider)
             {
-                // osu-web adds a 0.6 opacity container on top of the 0.5 base one when hovering, 0.8 on a single container here matches the resulting colour
-                AccentColour = colourProvider.Background6.Opacity(0.8f);
                 menu.BackgroundColour = colourProvider.Background5;
+                menu.HoverColour = colourProvider.Background4;
+                menu.SelectionColour = colourProvider.Background3;
                 Padding = new MarginPadding { Vertical = 20 };
             }
 
-            private class SpotlightsDropdownHeader : OsuDropdownHeader
+            private partial class SpotlightsDropdownHeader : OsuDropdownHeader
             {
                 public SpotlightsDropdownHeader()
                 {
@@ -202,7 +207,8 @@ namespace osu.Game.Overlays.Rankings
                 private void load(OverlayColourProvider colourProvider)
                 {
                     BackgroundColour = colourProvider.Background6.Opacity(0.5f);
-                    BackgroundColourHover = colourProvider.Background5;
+                    // osu-web adds a 0.6 opacity container on top of the 0.5 base one when hovering, 0.8 on a single container here matches the resulting colour
+                    BackgroundColourHover = colourProvider.Background6.Opacity(0.8f);
                 }
             }
         }

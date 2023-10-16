@@ -3,6 +3,9 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using osu.Framework.Allocation;
+using osu.Framework.Audio;
+using osu.Framework.Audio.Sample;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -10,6 +13,7 @@ using osu.Framework.Graphics.Effects;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Events;
+using osu.Framework.Localisation;
 using osu.Game.Graphics.Backgrounds;
 using osu.Game.Graphics.Containers;
 using osuTK;
@@ -18,7 +22,7 @@ using osuTK.Input;
 
 namespace osu.Game.Overlays.Dialog
 {
-    public abstract class PopupDialog : VisibilityContainer
+    public abstract partial class PopupDialog : VisibilityContainer
     {
         public const float ENTER_DURATION = 500;
         public const float EXIT_DURATION = 200;
@@ -26,6 +30,9 @@ namespace osu.Game.Overlays.Dialog
         private readonly Vector2 ringSize = new Vector2(100f);
         private readonly Vector2 ringMinifiedSize = new Vector2(20f);
         private readonly Vector2 buttonsEnterSpacing = new Vector2(0f, 50f);
+
+        private readonly Box flashLayer;
+        private Sample flashSample = null!;
 
         private readonly Container content;
         private readonly Container ring;
@@ -42,9 +49,9 @@ namespace osu.Game.Overlays.Dialog
             set => icon.Icon = value;
         }
 
-        private string headerText;
+        private LocalisableString headerText;
 
-        public string HeaderText
+        public LocalisableString HeaderText
         {
             get => headerText;
             set
@@ -57,9 +64,9 @@ namespace osu.Game.Overlays.Dialog
             }
         }
 
-        private string bodyText;
+        private LocalisableString bodyText;
 
-        public string BodyText
+        public LocalisableString BodyText
         {
             get => bodyText;
             set
@@ -87,17 +94,17 @@ namespace osu.Game.Overlays.Dialog
                         if (actionInvoked) return;
 
                         actionInvoked = true;
-                        action?.Invoke();
 
+                        // Hide the dialog before running the action.
+                        // This is important as the code which is performed may check for a dialog being present (ie. `OsuGame.PerformFromScreen`)
+                        // and we don't want it to see the already dismissed dialog.
                         Hide();
+
+                        action?.Invoke();
                     };
                 }
             }
         }
-
-        // We always want dialogs to show their appear animation, so we request they start hidden.
-        // Normally this would not be required, but is here due to the manual Show() call that occurs before LoadComplete().
-        protected override bool StartHidden => true;
 
         protected PopupDialog()
         {
@@ -195,6 +202,7 @@ namespace osu.Game.Overlays.Dialog
                                     TextAnchor = Anchor.TopCentre,
                                     RelativeSizeAxes = Axes.X,
                                     AutoSizeAxes = Axes.Y,
+                                    Padding = new MarginPadding(5),
                                 },
                             },
                         },
@@ -206,19 +214,50 @@ namespace osu.Game.Overlays.Dialog
                             AutoSizeAxes = Axes.Y,
                             Direction = FillDirection.Vertical,
                         },
+                        flashLayer = new Box
+                        {
+                            Alpha = 0,
+                            RelativeSizeAxes = Axes.Both,
+                            Blending = BlendingParameters.Additive,
+                            Colour = Color4Extensions.FromHex(@"221a21"),
+                        },
                     },
                 },
             };
 
             // It's important we start in a visible state so our state fires on hide, even before load.
-            // This is used by the DialogOverlay to know when the dialog was dismissed.
+            // This is used by the dialog overlay to know when the dialog was dismissed.
             Show();
+        }
+
+        [BackgroundDependencyLoader]
+        private void load(AudioManager audio)
+        {
+            flashSample = audio.Samples.Get(@"UI/default-select-disabled");
         }
 
         /// <summary>
         /// Programmatically clicks the first <see cref="PopupDialogOkButton"/>.
         /// </summary>
-        public void PerformOkAction() => Buttons.OfType<PopupDialogOkButton>().First().Click();
+        public void PerformOkAction() => PerformAction<PopupDialogOkButton>();
+
+        /// <summary>
+        /// Programmatically clicks the first button of the provided type.
+        /// </summary>
+        public void PerformAction<T>() where T : PopupDialogButton
+        {
+            // Buttons are regularly added in BDL or LoadComplete, so let's schedule to ensure
+            // they are ready to be pressed.
+            Scheduler.AddOnce(() => Buttons.OfType<T>().FirstOrDefault()?.TriggerClick());
+        }
+
+        public void Flash()
+        {
+            flashLayer.FadeInFromZero(80, Easing.OutQuint)
+                      .Then()
+                      .FadeOutFromOne(1500, Easing.OutQuint);
+            flashSample.Play();
+        }
 
         protected override bool OnKeyDown(KeyDownEvent e)
         {
@@ -262,10 +301,10 @@ namespace osu.Game.Overlays.Dialog
 
         protected override void PopOut()
         {
-            if (!actionInvoked && content.IsPresent)
+            if (!actionInvoked)
                 // In the case a user did not choose an action before a hide was triggered, press the last button.
                 // This is presumed to always be a sane default "cancel" action.
-                buttonsContainer.Last().Click();
+                buttonsContainer.Last().TriggerClick();
 
             content.FadeOut(EXIT_DURATION, Easing.InSine);
         }
@@ -273,7 +312,7 @@ namespace osu.Game.Overlays.Dialog
         private void pressButtonAtIndex(int index)
         {
             if (index < Buttons.Count())
-                Buttons.Skip(index).First().Click();
+                Buttons.Skip(index).First().TriggerClick();
         }
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
@@ -12,7 +12,7 @@ using osu.Game.Screens.Select;
 
 namespace osu.Game.Tests.Visual.UserInterface
 {
-    public class TestSceneFooterButtonMods : OsuTestScene
+    public partial class TestSceneFooterButtonMods : OsuTestScene
     {
         private readonly TestFooterButtonMods footerButtonMods;
 
@@ -36,9 +36,9 @@ namespace osu.Game.Tests.Visual.UserInterface
             AddStep(@"Add DoubleTime", () => changeMods(doubleTimeMod));
             AddAssert(@"Check DoubleTime multiplier", () => assertModsMultiplier(doubleTimeMod));
 
-            var mutlipleIncrementMods = new Mod[] { new OsuModDoubleTime(), new OsuModHidden(), new OsuModHardRock() };
-            AddStep(@"Add multiple Mods", () => changeMods(mutlipleIncrementMods));
-            AddAssert(@"Check multiple mod multiplier", () => assertModsMultiplier(mutlipleIncrementMods));
+            var multipleIncrementMods = new Mod[] { new OsuModDoubleTime(), new OsuModHidden(), new OsuModHardRock() };
+            AddStep(@"Add multiple Mods", () => changeMods(multipleIncrementMods));
+            AddAssert(@"Check multiple mod multiplier", () => assertModsMultiplier(multipleIncrementMods));
         }
 
         [Test]
@@ -73,13 +73,13 @@ namespace osu.Game.Tests.Visual.UserInterface
 
         private bool assertModsMultiplier(IEnumerable<Mod> mods)
         {
-            var multiplier = mods.Aggregate(1.0, (current, mod) => current * mod.ScoreMultiplier);
-            var expectedValue = multiplier.Equals(1.0) ? string.Empty : $"{multiplier:N2}x";
+            double multiplier = mods.Aggregate(1.0, (current, mod) => current * mod.ScoreMultiplier);
+            string expectedValue = multiplier.Equals(1.0) ? string.Empty : $"{multiplier:N2}x";
 
             return expectedValue == footerButtonMods.MultiplierText.Current.Value;
         }
 
-        private class TestFooterButtonMods : FooterButtonMods
+        private partial class TestFooterButtonMods : FooterButtonMods
         {
             public new OsuSpriteText MultiplierText => base.MultiplierText;
         }

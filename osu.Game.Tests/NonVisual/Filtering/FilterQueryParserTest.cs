@@ -23,6 +23,63 @@ namespace osu.Game.Tests.NonVisual.Filtering
             Assert.AreEqual(4, filterCriteria.SearchTerms.Length);
         }
 
+        [Test]
+        public void TestApplyQueriesBareWordsWithExactMatch()
+        {
+            const string query = "looking for \"a beatmap\"! like \"this\"";
+            var filterCriteria = new FilterCriteria();
+            FilterQueryParser.ApplyQueries(filterCriteria, query);
+            Assert.AreEqual("looking for \"a beatmap\"! like \"this\"", filterCriteria.SearchText);
+            Assert.AreEqual(5, filterCriteria.SearchTerms.Length);
+
+            Assert.That(filterCriteria.SearchTerms[0].SearchTerm, Is.EqualTo("a beatmap"));
+            Assert.That(filterCriteria.SearchTerms[0].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.FullPhrase));
+
+            Assert.That(filterCriteria.SearchTerms[1].SearchTerm, Is.EqualTo("this"));
+            Assert.That(filterCriteria.SearchTerms[1].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.IsolatedPhrase));
+
+            Assert.That(filterCriteria.SearchTerms[2].SearchTerm, Is.EqualTo("looking"));
+            Assert.That(filterCriteria.SearchTerms[2].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.Substring));
+
+            Assert.That(filterCriteria.SearchTerms[3].SearchTerm, Is.EqualTo("for"));
+            Assert.That(filterCriteria.SearchTerms[3].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.Substring));
+
+            Assert.That(filterCriteria.SearchTerms[4].SearchTerm, Is.EqualTo("like"));
+            Assert.That(filterCriteria.SearchTerms[4].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.Substring));
+        }
+
+        [Test]
+        public void TestApplyFullPhraseQueryWithExclamationPointInTerm()
+        {
+            const string query = "looking for \"circles!\"!";
+            var filterCriteria = new FilterCriteria();
+            FilterQueryParser.ApplyQueries(filterCriteria, query);
+            Assert.AreEqual("looking for \"circles!\"!", filterCriteria.SearchText);
+            Assert.AreEqual(3, filterCriteria.SearchTerms.Length);
+
+            Assert.That(filterCriteria.SearchTerms[0].SearchTerm, Is.EqualTo("circles!"));
+            Assert.That(filterCriteria.SearchTerms[0].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.FullPhrase));
+
+            Assert.That(filterCriteria.SearchTerms[1].SearchTerm, Is.EqualTo("looking"));
+            Assert.That(filterCriteria.SearchTerms[1].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.Substring));
+
+            Assert.That(filterCriteria.SearchTerms[2].SearchTerm, Is.EqualTo("for"));
+            Assert.That(filterCriteria.SearchTerms[2].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.Substring));
+        }
+
+        [Test]
+        public void TestApplyBrokenFullPhraseQuery()
+        {
+            const string query = "\"!";
+            var filterCriteria = new FilterCriteria();
+            FilterQueryParser.ApplyQueries(filterCriteria, query);
+            Assert.AreEqual("\"!", filterCriteria.SearchText);
+            Assert.AreEqual(1, filterCriteria.SearchTerms.Length);
+
+            Assert.That(filterCriteria.SearchTerms[0].SearchTerm, Is.EqualTo("!"));
+            Assert.That(filterCriteria.SearchTerms[0].MatchMode, Is.EqualTo(FilterCriteria.MatchMode.IsolatedPhrase));
+        }
+
         /*
          * The following tests have been written a bit strangely (they don't check exact
          * bound equality with what the filter says).
@@ -118,17 +175,31 @@ namespace osu.Game.Tests.NonVisual.Filtering
             Assert.IsNull(filterCriteria.BPM.Max);
         }
 
-        private static readonly object[] length_query_examples =
+        private static readonly object[] correct_length_query_examples =
         {
-            new object[] { "6ms", TimeSpan.FromMilliseconds(6), TimeSpan.FromMilliseconds(1) },
             new object[] { "23s", TimeSpan.FromSeconds(23), TimeSpan.FromSeconds(1) },
             new object[] { "9m", TimeSpan.FromMinutes(9), TimeSpan.FromMinutes(1) },
             new object[] { "0.25h", TimeSpan.FromHours(0.25), TimeSpan.FromHours(1) },
             new object[] { "70", TimeSpan.FromSeconds(70), TimeSpan.FromSeconds(1) },
+            new object[] { "7m27s", TimeSpan.FromSeconds(447), TimeSpan.FromSeconds(1) },
+            new object[] { "7:27", TimeSpan.FromSeconds(447), TimeSpan.FromSeconds(1) },
+            new object[] { "1h2m3s", TimeSpan.FromSeconds(3723), TimeSpan.FromSeconds(1) },
+            new object[] { "1h2m3.5s", TimeSpan.FromSeconds(3723.5), TimeSpan.FromSeconds(1) },
+            new object[] { "1:2:3", TimeSpan.FromSeconds(3723), TimeSpan.FromSeconds(1) },
+            new object[] { "1:02:03", TimeSpan.FromSeconds(3723), TimeSpan.FromSeconds(1) },
+            new object[] { "6", TimeSpan.FromSeconds(6), TimeSpan.FromSeconds(1) },
+            new object[] { "6.5", TimeSpan.FromSeconds(6.5), TimeSpan.FromSeconds(1) },
+            new object[] { "6.5s", TimeSpan.FromSeconds(6.5), TimeSpan.FromSeconds(1) },
+            new object[] { "6.5m", TimeSpan.FromMinutes(6.5), TimeSpan.FromMinutes(1) },
+            new object[] { "6h5m", TimeSpan.FromMinutes(365), TimeSpan.FromMinutes(1) },
+            new object[] { "65m", TimeSpan.FromMinutes(65), TimeSpan.FromMinutes(1) },
+            new object[] { "90s", TimeSpan.FromSeconds(90), TimeSpan.FromSeconds(1) },
+            new object[] { "80m20s", TimeSpan.FromSeconds(4820), TimeSpan.FromSeconds(1) },
+            new object[] { "1h20s", TimeSpan.FromSeconds(3620), TimeSpan.FromSeconds(1) },
         };
 
         [Test]
-        [TestCaseSource(nameof(length_query_examples))]
+        [TestCaseSource(nameof(correct_length_query_examples))]
         public void TestApplyLengthQueries(string lengthQuery, TimeSpan expectedLength, TimeSpan scale)
         {
             string query = $"length={lengthQuery} time";
@@ -138,6 +209,29 @@ namespace osu.Game.Tests.NonVisual.Filtering
             Assert.AreEqual(1, filterCriteria.SearchTerms.Length);
             Assert.AreEqual(expectedLength.TotalMilliseconds - scale.TotalMilliseconds / 2.0, filterCriteria.Length.Min);
             Assert.AreEqual(expectedLength.TotalMilliseconds + scale.TotalMilliseconds / 2.0, filterCriteria.Length.Max);
+        }
+
+        private static readonly object[] incorrect_length_query_examples =
+        {
+            new object[] { "7.5m27s" },
+            new object[] { "7m27" },
+            new object[] { "7m7m7m" },
+            new object[] { "7m70s" },
+            new object[] { "5s6m" },
+            new object[] { "0:" },
+            new object[] { ":0" },
+            new object[] { "0:3:" },
+            new object[] { "3:15.5" },
+        };
+
+        [Test]
+        [TestCaseSource(nameof(incorrect_length_query_examples))]
+        public void TestInvalidLengthQueries(string lengthQuery)
+        {
+            string query = $"length={lengthQuery} time";
+            var filterCriteria = new FilterCriteria();
+            FilterQueryParser.ApplyQueries(filterCriteria, query);
+            Assert.AreEqual(false, filterCriteria.Length.HasFilter);
         }
 
         [Test]
@@ -155,6 +249,16 @@ namespace osu.Game.Tests.NonVisual.Filtering
         }
 
         [Test]
+        public void TestPartialStatusMatch()
+        {
+            const string query = "status=r";
+            var filterCriteria = new FilterCriteria();
+            FilterQueryParser.ApplyQueries(filterCriteria, query);
+            Assert.AreEqual(BeatmapOnlineStatus.Ranked, filterCriteria.OnlineStatus.Min);
+            Assert.AreEqual(BeatmapOnlineStatus.Ranked, filterCriteria.OnlineStatus.Max);
+        }
+
+        [Test]
         public void TestApplyStatusQueries()
         {
             const string query = "I want the pp status=ranked";
@@ -162,9 +266,9 @@ namespace osu.Game.Tests.NonVisual.Filtering
             FilterQueryParser.ApplyQueries(filterCriteria, query);
             Assert.AreEqual("I want the pp", filterCriteria.SearchText.Trim());
             Assert.AreEqual(4, filterCriteria.SearchTerms.Length);
-            Assert.AreEqual(BeatmapSetOnlineStatus.Ranked, filterCriteria.OnlineStatus.Min);
+            Assert.AreEqual(BeatmapOnlineStatus.Ranked, filterCriteria.OnlineStatus.Min);
             Assert.IsTrue(filterCriteria.OnlineStatus.IsLowerInclusive);
-            Assert.AreEqual(BeatmapSetOnlineStatus.Ranked, filterCriteria.OnlineStatus.Max);
+            Assert.AreEqual(BeatmapOnlineStatus.Ranked, filterCriteria.OnlineStatus.Max);
             Assert.IsTrue(filterCriteria.OnlineStatus.IsUpperInclusive);
         }
 
@@ -180,6 +284,18 @@ namespace osu.Game.Tests.NonVisual.Filtering
         }
 
         [Test]
+        public void TestApplyTitleQueries()
+        {
+            const string query = "find me songs with title=\"a certain title\" please";
+            var filterCriteria = new FilterCriteria();
+            FilterQueryParser.ApplyQueries(filterCriteria, query);
+            Assert.AreEqual("find me songs with  please", filterCriteria.SearchText.Trim());
+            Assert.AreEqual(5, filterCriteria.SearchTerms.Length);
+            Assert.AreEqual("a certain title", filterCriteria.Title.SearchTerm);
+            Assert.That(filterCriteria.Title.MatchMode, Is.EqualTo(FilterCriteria.MatchMode.IsolatedPhrase));
+        }
+
+        [Test]
         public void TestApplyArtistQueries()
         {
             const string query = "find me songs by artist=singer please";
@@ -188,6 +304,7 @@ namespace osu.Game.Tests.NonVisual.Filtering
             Assert.AreEqual("find me songs by  please", filterCriteria.SearchText.Trim());
             Assert.AreEqual(5, filterCriteria.SearchTerms.Length);
             Assert.AreEqual("singer", filterCriteria.Artist.SearchTerm);
+            Assert.That(filterCriteria.Artist.MatchMode, Is.EqualTo(FilterCriteria.MatchMode.Substring));
         }
 
         [Test]
@@ -199,6 +316,19 @@ namespace osu.Game.Tests.NonVisual.Filtering
             Assert.AreEqual("really like  yes", filterCriteria.SearchText.Trim());
             Assert.AreEqual(3, filterCriteria.SearchTerms.Length);
             Assert.AreEqual("name with space", filterCriteria.Artist.SearchTerm);
+            Assert.That(filterCriteria.Artist.MatchMode, Is.EqualTo(FilterCriteria.MatchMode.IsolatedPhrase));
+        }
+
+        [Test]
+        public void TestApplyArtistQueriesWithSpacesFullPhrase()
+        {
+            const string query = "artist=\"The Only One\"!";
+            var filterCriteria = new FilterCriteria();
+            FilterQueryParser.ApplyQueries(filterCriteria, query);
+            Assert.That(filterCriteria.SearchText.Trim(), Is.Empty);
+            Assert.AreEqual(0, filterCriteria.SearchTerms.Length);
+            Assert.AreEqual("The Only One", filterCriteria.Artist.SearchTerm);
+            Assert.That(filterCriteria.Artist.MatchMode, Is.EqualTo(FilterCriteria.MatchMode.FullPhrase));
         }
 
         [Test]
@@ -254,9 +384,9 @@ namespace osu.Game.Tests.NonVisual.Filtering
 
         private class CustomFilterCriteria : IRulesetFilterCriteria
         {
-            public string CustomValue { get; set; }
+            public string? CustomValue { get; set; }
 
-            public bool Matches(BeatmapInfo beatmap) => true;
+            public bool Matches(BeatmapInfo beatmapInfo) => true;
 
             public bool TryParseCustomKeywordCriteria(string key, Operator op, string value)
             {

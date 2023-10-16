@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System.Diagnostics;
 using System.Linq;
 using JetBrains.Annotations;
@@ -8,25 +10,26 @@ using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Input;
 using osu.Framework.Input.Events;
-using osu.Game.Graphics;
 using osu.Game.Rulesets.Edit;
 using osu.Game.Rulesets.Objects;
 using osu.Game.Rulesets.Objects.Types;
 using osu.Game.Rulesets.Osu.Edit.Blueprints.HitCircles.Components;
 using osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders.Components;
+using osu.Game.Rulesets.Osu.Objects;
+using osu.Game.Screens.Edit;
 using osuTK;
 using osuTK.Input;
 
 namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
 {
-    public class SliderPlacementBlueprint : PlacementBlueprint
+    public partial class SliderPlacementBlueprint : PlacementBlueprint
     {
-        public new Objects.Slider HitObject => (Objects.Slider)base.HitObject;
+        public new Slider HitObject => (Slider)base.HitObject;
 
         private SliderBodyPiece bodyPiece;
         private HitCirclePiece headCirclePiece;
         private HitCirclePiece tailCirclePiece;
-        private PathControlPointVisualiser controlPointVisualiser;
+        private PathControlPointVisualiser<Slider> controlPointVisualiser;
 
         private InputManager inputManager;
 
@@ -36,10 +39,12 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
         private int currentSegmentLength;
 
         [Resolved(CanBeNull = true)]
-        private HitObjectComposer composer { get; set; }
+        private IDistanceSnapProvider snapProvider { get; set; }
+
+        protected override bool IsValidForPlacement => HitObject.Path.HasValidLength;
 
         public SliderPlacementBlueprint()
-            : base(new Objects.Slider())
+            : base(new Slider())
         {
             RelativeSizeAxes = Axes.Both;
 
@@ -48,14 +53,14 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour colours)
+        private void load()
         {
             InternalChildren = new Drawable[]
             {
                 bodyPiece = new SliderBodyPiece(),
                 headCirclePiece = new HitCirclePiece(),
                 tailCirclePiece = new HitCirclePiece(),
-                controlPointVisualiser = new PathControlPointVisualiser(HitObject, false)
+                controlPointVisualiser = new PathControlPointVisualiser<Slider>(HitObject, false)
             };
 
             setState(SliderPlacementState.Initial);
@@ -67,6 +72,9 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
             inputManager = GetContainingInputManager();
         }
 
+        [Resolved]
+        private EditorBeatmap editorBeatmap { get; set; }
+
         public override void UpdateTimeAndPosition(SnapResult result)
         {
             base.UpdateTimeAndPosition(result);
@@ -75,7 +83,16 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
             {
                 case SliderPlacementState.Initial:
                     BeginPlacement();
+
+                    double? nearestSliderVelocity = (editorBeatmap.HitObjects
+                                                                  .LastOrDefault(h => h is Slider && h.GetEndTime() < HitObject.StartTime) as Slider)?.SliderVelocityMultiplier;
+
+                    HitObject.SliderVelocityMultiplier = nearestSliderVelocity ?? 1;
                     HitObject.Position = ToLocalSpace(result.ScreenSpacePosition);
+
+                    // Replacing the DifficultyControlPoint above doesn't trigger any kind of invalidation.
+                    // Without re-applying defaults, velocity won't be updated.
+                    ApplyDefaultsToHitObject();
                     break;
 
                 case SliderPlacementState.Body:
@@ -108,7 +125,7 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
                         Debug.Assert(lastPoint != null);
 
                         segmentStart = lastPoint;
-                        segmentStart.Type.Value = PathType.Linear;
+                        segmentStart.Type = PathType.Linear;
 
                         currentSegmentLength = 1;
                     }
@@ -135,7 +152,7 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
         private void endCurve()
         {
             updateSlider();
-            EndPlacement(HitObject.Path.HasValidLength);
+            EndPlacement(true);
         }
 
         protected override void Update()
@@ -153,15 +170,15 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
             {
                 case 1:
                 case 2:
-                    segmentStart.Type.Value = PathType.Linear;
+                    segmentStart.Type = PathType.Linear;
                     break;
 
                 case 3:
-                    segmentStart.Type.Value = PathType.PerfectCurve;
+                    segmentStart.Type = PathType.PerfectCurve;
                     break;
 
                 default:
-                    segmentStart.Type.Value = PathType.Bezier;
+                    segmentStart.Type = PathType.Bezier;
                     break;
             }
         }
@@ -173,7 +190,7 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
                 // The cursor does not overlap a previous control point, so it can be added if not already existing.
                 if (cursor == null)
                 {
-                    HitObject.Path.ControlPoints.Add(cursor = new PathControlPoint { Position = { Value = Vector2.Zero } });
+                    HitObject.Path.ControlPoints.Add(cursor = new PathControlPoint { Position = Vector2.Zero });
 
                     // The path type should be adjusted in the progression of updatePathType() (Linear -> PC -> Bezier).
                     currentSegmentLength++;
@@ -181,7 +198,8 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
                 }
 
                 // Update the cursor position.
-                cursor.Position.Value = ToLocalSpace(inputManager.CurrentState.Mouse.Position) - HitObject.Position;
+                var result = snapProvider?.FindSnappedPositionAndTime(inputManager.CurrentState.Mouse.Position, state == SliderPlacementState.Body ? SnapType.GlobalGrids : SnapType.All);
+                cursor.Position = ToLocalSpace(result?.ScreenSpacePosition ?? inputManager.CurrentState.Mouse.Position) - HitObject.Position;
             }
             else if (cursor != null)
             {
@@ -212,7 +230,7 @@ namespace osu.Game.Rulesets.Osu.Edit.Blueprints.Sliders
 
         private void updateSlider()
         {
-            HitObject.Path.ExpectedDistance.Value = composer?.GetSnappedDistanceFromDistance(HitObject.StartTime, (float)HitObject.Path.CalculatedDistance) ?? (float)HitObject.Path.CalculatedDistance;
+            HitObject.Path.ExpectedDistance.Value = snapProvider?.FindSnappedDistance(HitObject, (float)HitObject.Path.CalculatedDistance) ?? (float)HitObject.Path.CalculatedDistance;
 
             bodyPiece.UpdateFrom(HitObject);
             headCirclePiece.UpdateFrom(HitObject.HeadCircle);

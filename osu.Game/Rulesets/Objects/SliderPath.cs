@@ -1,9 +1,10 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Linq;
 using Newtonsoft.Json;
 using osu.Framework.Bindables;
@@ -43,6 +44,9 @@ namespace osu.Game.Rulesets.Objects
 
         private double calculatedLength;
 
+        private readonly List<int> segmentEnds = new List<int>();
+        private double[] segmentEndDistances = Array.Empty<double>();
+
         /// <summary>
         /// Creates a new <see cref="SliderPath"/>.
         /// </summary>
@@ -55,12 +59,16 @@ namespace osu.Game.Rulesets.Objects
                 switch (args.Action)
                 {
                     case NotifyCollectionChangedAction.Add:
+                        Debug.Assert(args.NewItems != null);
+
                         foreach (var c in args.NewItems.Cast<PathControlPoint>())
                             c.Changed += invalidate;
                         break;
 
                     case NotifyCollectionChangedAction.Reset:
                     case NotifyCollectionChangedAction.Remove:
+                        Debug.Assert(args.OldItems != null);
+
                         foreach (var c in args.OldItems.Cast<PathControlPoint>())
                             c.Changed -= invalidate;
                         break;
@@ -85,7 +93,7 @@ namespace osu.Game.Rulesets.Objects
         }
 
         public SliderPath(PathType type, Vector2[] controlPoints, double? expectedDistance = null)
-            : this(controlPoints.Select((c, i) => new PathControlPoint(c, i == 0 ? (PathType?)type : null)).ToArray(), expectedDistance)
+            : this(controlPoints.Select((c, i) => new PathControlPoint(c, i == 0 ? type : null)).ToArray(), expectedDistance)
         {
         }
 
@@ -169,7 +177,7 @@ namespace osu.Game.Rulesets.Objects
 
             foreach (PathControlPoint point in ControlPoints)
             {
-                if (point.Type.Value != null)
+                if (point.Type != null)
                 {
                     if (!found)
                         pointsInCurrentSegment.Clear();
@@ -187,6 +195,31 @@ namespace osu.Game.Rulesets.Objects
             }
 
             return pointsInCurrentSegment;
+        }
+
+        /// <summary>
+        /// Returns the progress values at which (control point) segments of the path end.
+        /// Ranges from 0 (beginning of the path) to 1 (end of the path) to infinity (beyond the end of the path).
+        /// </summary>
+        /// <remarks>
+        /// <see cref="PositionAt"/> truncates the progression values to [0,1],
+        /// so you can't use this method in conjunction with that one to retrieve the positions of segment ends beyond the end of the path.
+        /// </remarks>
+        /// <example>
+        /// <para>
+        /// In case <see cref="Distance"/> is less than <see cref="CalculatedDistance"/>,
+        /// the last segment ends after the end of the path, hence it returns a value greater than 1.
+        /// </para>
+        /// <para>
+        /// In case <see cref="Distance"/> is greater than <see cref="CalculatedDistance"/>,
+        /// the last segment ends before the end of the path, hence it returns a value less than 1.
+        /// </para>
+        /// </example>
+        public IEnumerable<double> GetSegmentEnds()
+        {
+            ensureValid();
+
+            return segmentEndDistances.Select(d => d / Distance);
         }
 
         private void invalidate()
@@ -209,29 +242,43 @@ namespace osu.Game.Rulesets.Objects
         private void calculatePath()
         {
             calculatedPath.Clear();
+            segmentEnds.Clear();
 
             if (ControlPoints.Count == 0)
                 return;
 
             Vector2[] vertices = new Vector2[ControlPoints.Count];
             for (int i = 0; i < ControlPoints.Count; i++)
-                vertices[i] = ControlPoints[i].Position.Value;
+                vertices[i] = ControlPoints[i].Position;
 
             int start = 0;
 
             for (int i = 0; i < ControlPoints.Count; i++)
             {
-                if (ControlPoints[i].Type.Value == null && i < ControlPoints.Count - 1)
+                if (ControlPoints[i].Type == null && i < ControlPoints.Count - 1)
                     continue;
 
                 // The current vertex ends the segment
                 var segmentVertices = vertices.AsSpan().Slice(start, i - start + 1);
-                var segmentType = ControlPoints[start].Type.Value ?? PathType.Linear;
+                var segmentType = ControlPoints[start].Type ?? PathType.Linear;
 
-                foreach (Vector2 t in calculateSubPath(segmentVertices, segmentType))
+                // No need to calculate path when there is only 1 vertex
+                if (segmentVertices.Length == 1)
+                    calculatedPath.Add(segmentVertices[0]);
+                else if (segmentVertices.Length > 1)
                 {
-                    if (calculatedPath.Count == 0 || calculatedPath.Last() != t)
+                    List<Vector2> subPath = calculateSubPath(segmentVertices, segmentType);
+                    // Skip the first vertex if it is the same as the last vertex from the previous segment
+                    int skipFirst = calculatedPath.Count > 0 && subPath.Count > 0 && calculatedPath.Last() == subPath[0] ? 1 : 0;
+
+                    foreach (Vector2 t in subPath.Skip(skipFirst))
                         calculatedPath.Add(t);
+                }
+
+                if (i > 0)
+                {
+                    // Remember the index of the segment end
+                    segmentEnds.Add(calculatedPath.Count - 1);
                 }
 
                 // Start the new segment at the current vertex
@@ -250,13 +297,13 @@ namespace osu.Game.Rulesets.Objects
                     if (subControlPoints.Length != 3)
                         break;
 
-                    List<Vector2> subpath = PathApproximator.ApproximateCircularArc(subControlPoints);
+                    List<Vector2> subPath = PathApproximator.ApproximateCircularArc(subControlPoints);
 
                     // If for some reason a circular arc could not be fit to the 3 given points, fall back to a numerically stable bezier approximation.
-                    if (subpath.Count == 0)
+                    if (subPath.Count == 0)
                         break;
 
-                    return subpath;
+                    return subPath;
 
                 case PathType.Catmull:
                     return PathApproximator.ApproximateCatmull(subControlPoints);
@@ -278,8 +325,23 @@ namespace osu.Game.Rulesets.Objects
                 cumulativeLength.Add(calculatedLength);
             }
 
+            // Store the distances of the segment ends now, because after shortening the indices may be out of range
+            segmentEndDistances = new double[segmentEnds.Count];
+
+            for (int i = 0; i < segmentEnds.Count; i++)
+            {
+                segmentEndDistances[i] = cumulativeLength[segmentEnds[i]];
+            }
+
             if (ExpectedDistance.Value is double expectedDistance && calculatedLength != expectedDistance)
             {
+                // In osu-stable, if the last two path points of a slider are equal, extension is not performed.
+                if (calculatedPath.Count >= 2 && calculatedPath[^1] == calculatedPath[^2] && expectedDistance > calculatedLength)
+                {
+                    cumulativeLength.Add(calculatedLength);
+                    return;
+                }
+
                 // The last length is always incorrect
                 cumulativeLength.RemoveAt(cumulativeLength.Count - 1);
 

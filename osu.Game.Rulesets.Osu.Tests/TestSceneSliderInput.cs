@@ -1,12 +1,13 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Screens;
 using osu.Game.Beatmaps;
-using osu.Game.Beatmaps.ControlPoints;
 using osu.Game.Replays;
 using osu.Game.Rulesets.Judgements;
 using osu.Game.Rulesets.Objects;
@@ -22,7 +23,7 @@ using osuTK;
 
 namespace osu.Game.Rulesets.Osu.Tests
 {
-    public class TestSceneSliderInput : RateAdjustedBeatmapTestScene
+    public partial class TestSceneSliderInput : RateAdjustedBeatmapTestScene
     {
         private const double time_before_slider = 250;
         private const double time_slider_start = 1500;
@@ -348,6 +349,7 @@ namespace osu.Game.Rulesets.Osu.Tests
                         {
                             StartTime = time_slider_start,
                             Position = new Vector2(0, 0),
+                            SliderVelocityMultiplier = 0.1f,
                             Path = new SliderPath(PathType.PerfectCurve, new[]
                             {
                                 Vector2.Zero,
@@ -357,12 +359,10 @@ namespace osu.Game.Rulesets.Osu.Tests
                     },
                     BeatmapInfo =
                     {
-                        BaseDifficulty = new BeatmapDifficulty { SliderTickRate = 3 },
+                        Difficulty = new BeatmapDifficulty { SliderTickRate = 3 },
                         Ruleset = new OsuRuleset().RulesetInfo
                     },
                 });
-
-                Beatmap.Value.Beatmap.ControlPointInfo.Add(0, new DifficultyControlPoint { SpeedMultiplier = 0.1f });
 
                 var p = new ScoreAccessibleReplayPlayer(new Score { Replay = new Replay { Frames = frames } });
 
@@ -383,7 +383,7 @@ namespace osu.Game.Rulesets.Osu.Tests
             AddUntilStep("Wait for completion", () => currentPlayer.ScoreProcessor.HasCompleted.Value);
         }
 
-        private class ScoreAccessibleReplayPlayer : ReplayPlayer
+        private partial class ScoreAccessibleReplayPlayer : ReplayPlayer
         {
             public new ScoreProcessor ScoreProcessor => base.ScoreProcessor;
 

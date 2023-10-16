@@ -1,6 +1,9 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
+using osu.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
@@ -14,7 +17,7 @@ using osu.Game.Localisation;
 
 namespace osu.Game.Overlays.Settings.Sections.Input
 {
-    public class MouseSettings : SettingsSubsection
+    public partial class MouseSettings : SettingsSubsection
     {
         private readonly MouseHandler mouseHandler;
 
@@ -27,6 +30,8 @@ namespace osu.Game.Overlays.Settings.Sections.Input
         private Bindable<WindowMode> windowMode;
         private SettingsEnumDropdown<OsuConfineMouseMode> confineMouseModeSetting;
         private Bindable<bool> relativeMode;
+
+        private SettingsCheckbox highPrecisionMouse;
 
         public MouseSettings(MouseHandler mouseHandler)
         {
@@ -45,7 +50,7 @@ namespace osu.Game.Overlays.Settings.Sections.Input
 
             Children = new Drawable[]
             {
-                new SettingsCheckbox
+                highPrecisionMouse = new SettingsCheckbox
                 {
                     LabelText = MouseSettingsStrings.HighPrecisionMouse,
                     TooltipText = MouseSettingsStrings.HighPrecisionMouseTooltip,
@@ -64,7 +69,8 @@ namespace osu.Game.Overlays.Settings.Sections.Input
                 },
                 new SettingsCheckbox
                 {
-                    LabelText = MouseSettingsStrings.DisableMouseWheel,
+                    LabelText = MouseSettingsStrings.DisableMouseWheelVolumeAdjust,
+                    TooltipText = MouseSettingsStrings.DisableMouseWheelVolumeAdjustTooltip,
                     Current = osuConfig.GetBindable<bool>(OsuSetting.MouseDisableWheel)
                 },
                 new SettingsCheckbox
@@ -83,7 +89,7 @@ namespace osu.Game.Overlays.Settings.Sections.Input
 
             handlerSensitivity.BindValueChanged(val =>
             {
-                var disabled = localSensitivity.Disabled;
+                bool disabled = localSensitivity.Disabled;
 
                 localSensitivity.Disabled = false;
                 localSensitivity.Value = val.NewValue;
@@ -94,7 +100,7 @@ namespace osu.Game.Overlays.Settings.Sections.Input
 
             windowMode.BindValueChanged(mode =>
             {
-                var isFullscreen = mode.NewValue == WindowMode.Fullscreen;
+                bool isFullscreen = mode.NewValue == WindowMode.Fullscreen;
 
                 if (isFullscreen)
                 {
@@ -107,9 +113,20 @@ namespace osu.Game.Overlays.Settings.Sections.Input
                     confineMouseModeSetting.TooltipText = string.Empty;
                 }
             }, true);
+
+            highPrecisionMouse.Current.BindValueChanged(highPrecision =>
+            {
+                if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                {
+                    if (highPrecision.NewValue)
+                        highPrecisionMouse.SetNoticeText(MouseSettingsStrings.HighPrecisionPlatformWarning, true);
+                    else
+                        highPrecisionMouse.ClearNoticeText();
+                }
+            }, true);
         }
 
-        private class SensitivitySetting : SettingsSlider<double, SensitivitySlider>
+        public partial class SensitivitySetting : SettingsSlider<double, SensitivitySlider>
         {
             public SensitivitySetting()
             {
@@ -118,7 +135,7 @@ namespace osu.Game.Overlays.Settings.Sections.Input
             }
         }
 
-        private class SensitivitySlider : OsuSliderBar<double>
+        public partial class SensitivitySlider : RoundedSliderBar<double>
         {
             public override LocalisableString TooltipText => Current.Disabled ? MouseSettingsStrings.EnableHighPrecisionForSensitivityAdjust : $"{base.TooltipText}x";
         }

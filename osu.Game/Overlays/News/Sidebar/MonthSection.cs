@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.Containers;
@@ -15,19 +17,29 @@ using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics.Sprites;
 using System.Diagnostics;
-using osu.Framework.Platform;
+using osu.Framework.Audio;
+using osu.Framework.Audio.Sample;
+using osu.Framework.Extensions.LocalisationExtensions;
+using osu.Game.Online.Chat;
 
 namespace osu.Game.Overlays.News.Sidebar
 {
-    public class MonthSection : CompositeDrawable
+    public partial class MonthSection : CompositeDrawable
     {
-        private const int animation_duration = 250;
-
+        public int Year { get; private set; }
+        public int Month { get; private set; }
         public readonly BindableBool Expanded = new BindableBool();
+
+        private const int animation_duration = 250;
+        private Sample sampleOpen;
+        private Sample sampleClose;
 
         public MonthSection(int month, int year, IEnumerable<APINewsPost> posts)
         {
             Debug.Assert(posts.All(p => p.PublishedAt.Month == month && p.PublishedAt.Year == year));
+
+            Year = year;
+            Month = month;
 
             RelativeSizeAxes = Axes.X;
             AutoSizeAxes = Axes.Y;
@@ -47,13 +59,28 @@ namespace osu.Game.Overlays.News.Sidebar
                     new PostsContainer
                     {
                         Expanded = { BindTarget = Expanded },
-                        Children = posts.Select(p => new PostButton(p)).ToArray()
+                        Children = posts.Select(p => new PostLink(p)).ToArray()
                     }
                 }
             };
+
+            Expanded.ValueChanged += expanded =>
+            {
+                if (expanded.NewValue)
+                    sampleOpen?.Play();
+                else
+                    sampleClose?.Play();
+            };
         }
 
-        private class DropdownHeader : OsuClickableContainer
+        [BackgroundDependencyLoader]
+        private void load(AudioManager audio)
+        {
+            sampleOpen = audio.Samples.Get(@"UI/dropdown-open");
+            sampleClose = audio.Samples.Get(@"UI/dropdown-close");
+        }
+
+        private partial class DropdownHeader : OsuClickableContainer
         {
             public readonly BindableBool Expanded = new BindableBool();
 
@@ -73,7 +100,7 @@ namespace osu.Game.Overlays.News.Sidebar
                         Anchor = Anchor.CentreLeft,
                         Origin = Anchor.CentreLeft,
                         Font = OsuFont.GetFont(size: 12, weight: FontWeight.Bold),
-                        Text = date.ToString("MMM yyyy")
+                        Text = date.ToLocalisableString(@"MMM yyyy")
                     },
                     icon = new SpriteIcon
                     {
@@ -96,39 +123,18 @@ namespace osu.Game.Overlays.News.Sidebar
             }
         }
 
-        private class PostButton : OsuHoverContainer
+        private partial class PostLink : LinkFlowContainer
         {
-            protected override IEnumerable<Drawable> EffectTargets => new[] { text };
-
-            private readonly TextFlowContainer text;
-            private readonly APINewsPost post;
-
-            public PostButton(APINewsPost post)
+            public PostLink(APINewsPost post)
+                : base(t => t.Font = OsuFont.GetFont(size: 12))
             {
-                this.post = post;
-
                 RelativeSizeAxes = Axes.X;
                 AutoSizeAxes = Axes.Y;
-                Child = text = new TextFlowContainer(t => t.Font = OsuFont.GetFont(size: 12))
-                {
-                    RelativeSizeAxes = Axes.X,
-                    AutoSizeAxes = Axes.Y,
-                    Text = post.Title
-                };
-            }
-
-            [BackgroundDependencyLoader]
-            private void load(OverlayColourProvider overlayColours, GameHost host)
-            {
-                IdleColour = overlayColours.Light2;
-                HoverColour = overlayColours.Light1;
-
-                TooltipText = "view in browser";
-                Action = () => host.OpenUrlExternally("https://osu.ppy.sh/home/news/" + post.Slug);
+                AddLink(post.Title, LinkAction.External, @"/home/news/" + post.Slug, "view in browser");
             }
         }
 
-        private class PostsContainer : Container
+        private partial class PostsContainer : Container
         {
             public readonly BindableBool Expanded = new BindableBool();
 

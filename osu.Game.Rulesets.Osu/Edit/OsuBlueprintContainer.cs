@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Game.Rulesets.Edit;
@@ -11,7 +11,7 @@ using osu.Game.Screens.Edit.Compose.Components;
 
 namespace osu.Game.Rulesets.Osu.Edit
 {
-    public class OsuBlueprintContainer : ComposeBlueprintContainer
+    public partial class OsuBlueprintContainer : ComposeBlueprintContainer
     {
         public OsuBlueprintContainer(HitObjectComposer composer)
             : base(composer)
@@ -20,7 +20,7 @@ namespace osu.Game.Rulesets.Osu.Edit
 
         protected override SelectionHandler<HitObject> CreateSelectionHandler() => new OsuSelectionHandler();
 
-        public override HitObjectSelectionBlueprint CreateHitObjectBlueprintFor(HitObject hitObject)
+        public override HitObjectSelectionBlueprint? CreateHitObjectBlueprintFor(HitObject hitObject)
         {
             switch (hitObject)
             {

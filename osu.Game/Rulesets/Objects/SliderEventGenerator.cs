@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
@@ -10,18 +10,26 @@ namespace osu.Game.Rulesets.Objects
 {
     public static class SliderEventGenerator
     {
-        // ReSharper disable once MethodOverloadWithOptionalParameter
+        /// <summary>
+        /// Historically, slider's final tick (aka the place where the slider would receive a final judgement) was offset by -36 ms. Originally this was
+        /// done to workaround a technical detail (unimportant), but over the years it has become an expectation of players that you don't need to hold
+        /// until the true end of the slider. This very small amount of leniency makes it easier to jump away from fast sliders to the next hit object.
+        ///
+        /// After discussion on how this should be handled going forward, players have unanimously stated that this lenience should remain in some way.
+        /// </summary>
+        public const double LAST_TICK_OFFSET = -36;
+
         public static IEnumerable<SliderEventDescriptor> Generate(double startTime, double spanDuration, double velocity, double tickDistance, double totalDistance, int spanCount,
-                                                                  double? legacyLastTickOffset, CancellationToken cancellationToken = default)
+                                                                  CancellationToken cancellationToken = default)
         {
             // A very lenient maximum length of a slider for ticks to be generated.
             // This exists for edge cases such as /b/1573664 where the beatmap has been edited by the user, and should never be reached in normal usage.
             const double max_length = 100000;
 
-            var length = Math.Min(max_length, totalDistance);
+            double length = Math.Min(max_length, totalDistance);
             tickDistance = Math.Clamp(tickDistance, 0, length);
 
-            var minDistanceFromEnd = velocity * 10;
+            double minDistanceFromEnd = velocity * 10;
 
             yield return new SliderEventDescriptor
             {
@@ -34,10 +42,10 @@ namespace osu.Game.Rulesets.Objects
 
             if (tickDistance != 0)
             {
-                for (var span = 0; span < spanCount; span++)
+                for (int span = 0; span < spanCount; span++)
                 {
-                    var spanStartTime = startTime + span * spanDuration;
-                    var reversed = span % 2 == 1;
+                    double spanStartTime = startTime + span * spanDuration;
+                    bool reversed = span % 2 == 1;
 
                     var ticks = generateTicks(span, spanStartTime, spanDuration, reversed, length, tickDistance, minDistanceFromEnd, cancellationToken);
 
@@ -76,14 +84,14 @@ namespace osu.Game.Rulesets.Objects
 
             int finalSpanIndex = spanCount - 1;
             double finalSpanStartTime = startTime + finalSpanIndex * spanDuration;
-            double finalSpanEndTime = Math.Max(startTime + totalDuration / 2, (finalSpanStartTime + spanDuration) - (legacyLastTickOffset ?? 0));
+            double finalSpanEndTime = Math.Max(startTime + totalDuration / 2, (finalSpanStartTime + spanDuration) + LAST_TICK_OFFSET);
             double finalProgress = (finalSpanEndTime - finalSpanStartTime) / spanDuration;
 
             if (spanCount % 2 == 0) finalProgress = 1 - finalProgress;
 
             yield return new SliderEventDescriptor
             {
-                Type = SliderEventType.LegacyLastTick,
+                Type = SliderEventType.LastTick,
                 SpanIndex = finalSpanIndex,
                 SpanStartTime = finalSpanStartTime,
                 Time = finalSpanEndTime,
@@ -115,7 +123,7 @@ namespace osu.Game.Rulesets.Objects
         private static IEnumerable<SliderEventDescriptor> generateTicks(int spanIndex, double spanStartTime, double spanDuration, bool reversed, double length, double tickDistance,
                                                                         double minDistanceFromEnd, CancellationToken cancellationToken = default)
         {
-            for (var d = tickDistance; d <= length; d += tickDistance)
+            for (double d = tickDistance; d <= length; d += tickDistance)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -123,8 +131,8 @@ namespace osu.Game.Rulesets.Objects
                     break;
 
                 // Always generate ticks from the start of the path rather than the span to ensure that ticks in repeat spans are positioned identically to those in non-repeat spans
-                var pathProgress = d / length;
-                var timeProgress = reversed ? 1 - pathProgress : pathProgress;
+                double pathProgress = d / length;
+                double timeProgress = reversed ? 1 - pathProgress : pathProgress;
 
                 yield return new SliderEventDescriptor
                 {
@@ -173,7 +181,11 @@ namespace osu.Game.Rulesets.Objects
     public enum SliderEventType
     {
         Tick,
-        LegacyLastTick,
+
+        /// <summary>
+        /// Occurs just before the tail. See <see cref="SliderEventGenerator.LAST_TICK_OFFSET"/>.
+        /// </summary>
+        LastTick,
         Head,
         Tail,
         Repeat

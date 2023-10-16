@@ -7,6 +7,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Bindings;
+using osu.Framework.Input.Events;
 using osu.Game.Rulesets.Mania.UI;
 using osu.Game.Rulesets.UI.Scrolling;
 using osu.Game.Skinning;
@@ -14,16 +15,16 @@ using osuTK;
 
 namespace osu.Game.Rulesets.Mania.Skinning.Legacy
 {
-    public class LegacyKeyArea : LegacyManiaColumnElement, IKeyBindingHandler<ManiaAction>
+    public partial class LegacyKeyArea : LegacyManiaColumnElement, IKeyBindingHandler<ManiaAction>
     {
         private readonly IBindable<ScrollingDirection> direction = new Bindable<ScrollingDirection>();
 
-        private Container directionContainer;
-        private Sprite upSprite;
-        private Sprite downSprite;
+        private Container directionContainer = null!;
+        private Sprite upSprite = null!;
+        private Sprite downSprite = null!;
 
         [Resolved]
-        private Column column { get; set; }
+        private Column column { get; set; } = null!;
 
         public LegacyKeyArea()
         {
@@ -86,9 +87,9 @@ namespace osu.Game.Rulesets.Mania.Skinning.Legacy
             }
         }
 
-        public bool OnPressed(ManiaAction action)
+        public bool OnPressed(KeyBindingPressEvent<ManiaAction> e)
         {
-            if (action == column.Action.Value)
+            if (e.Action == column.Action.Value)
             {
                 upSprite.FadeTo(0);
                 downSprite.FadeTo(1);
@@ -97,9 +98,9 @@ namespace osu.Game.Rulesets.Mania.Skinning.Legacy
             return false;
         }
 
-        public void OnReleased(ManiaAction action)
+        public void OnReleased(KeyBindingReleaseEvent<ManiaAction> e)
         {
-            if (action == column.Action.Value)
+            if (e.Action == column.Action.Value)
             {
                 upSprite.Delay(LegacyHitExplosion.FADE_IN_DURATION).FadeTo(1);
                 downSprite.Delay(LegacyHitExplosion.FADE_IN_DURATION).FadeTo(0);

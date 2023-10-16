@@ -6,7 +6,7 @@ using osu.Game.Rulesets.Catch.Objects;
 
 namespace osu.Game.Rulesets.Catch.Edit.Blueprints
 {
-    public class FruitSelectionBlueprint : CatchSelectionBlueprint<Fruit>
+    public partial class FruitSelectionBlueprint : CatchSelectionBlueprint<Fruit>
     {
         private readonly FruitOutline outline;
 
@@ -20,8 +20,10 @@ namespace osu.Game.Rulesets.Catch.Edit.Blueprints
         {
             base.Update();
 
-            if (IsSelected)
-                outline.UpdateFrom(HitObjectContainer, HitObject);
+            if (!IsSelected) return;
+
+            outline.Position = CatchHitObjectUtils.GetStartPosition(HitObjectContainer, HitObject);
+            outline.UpdateFrom(HitObject);
         }
     }
 }

@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using Markdig.Syntax;
 using osu.Framework.Allocation;
@@ -20,7 +22,7 @@ using osuTK.Graphics;
 
 namespace osu.Game.Overlays.Wiki
 {
-    public class WikiPanelContainer : Container
+    public partial class WikiPanelContainer : Container
     {
         private WikiPanelMarkdownContainer panelContainer;
 
@@ -76,7 +78,7 @@ namespace osu.Game.Overlays.Wiki
             Height = Math.Max(panelContainer.Height, Parent.DrawHeight);
         }
 
-        private class WikiPanelMarkdownContainer : WikiMarkdownContainer
+        private partial class WikiPanelMarkdownContainer : WikiMarkdownContainer
         {
             private readonly bool isFullWidth;
 
@@ -89,7 +91,7 @@ namespace osu.Game.Overlays.Wiki
                 DocumentMargin = new MarginPadding(0);
             }
 
-            public override SpriteText CreateSpriteText() => base.CreateSpriteText().With(t => t.Font = t.Font.With(weight: FontWeight.Bold));
+            public override SpriteText CreateSpriteText() => base.CreateSpriteText().With(t => t.Font = t.Font.With(Typeface.Torus, weight: FontWeight.Bold));
 
             public override MarkdownTextFlowContainer CreateTextFlow() => base.CreateTextFlow().With(f => f.TextAnchor = Anchor.TopCentre);
 
@@ -102,7 +104,7 @@ namespace osu.Game.Overlays.Wiki
             };
         }
 
-        private class WikiPanelHeading : OsuMarkdownHeading
+        private partial class WikiPanelHeading : OsuMarkdownHeading
         {
             public bool IsFullWidth;
 

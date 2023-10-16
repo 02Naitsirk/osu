@@ -1,7 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System;
+#nullable disable
+
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
@@ -12,7 +13,6 @@ using osu.Framework.Graphics;
 using osu.Framework.Input;
 using osu.Game.Beatmaps;
 using osu.Game.Beatmaps.ControlPoints;
-using osu.Game.Configuration;
 using osu.Game.Input.Handlers;
 using osu.Game.Replays;
 using osu.Game.Rulesets.Mania.Beatmaps;
@@ -28,15 +28,15 @@ using osu.Game.Scoring;
 
 namespace osu.Game.Rulesets.Mania.UI
 {
-    public class DrawableManiaRuleset : DrawableScrollingRuleset<ManiaHitObject>
+    public partial class DrawableManiaRuleset : DrawableScrollingRuleset<ManiaHitObject>
     {
         /// <summary>
-        /// The minimum time range. This occurs at a <see cref="relativeTimeRange"/> of 40.
+        /// The minimum time range. This occurs at a <see cref="ManiaRulesetSetting.ScrollSpeed"/> of 40.
         /// </summary>
         public const double MIN_TIME_RANGE = 290;
 
         /// <summary>
-        /// The maximum time range. This occurs at a <see cref="relativeTimeRange"/> of 1.
+        /// The maximum time range. This occurs with a <see cref="ManiaRulesetSetting.ScrollSpeed"/> of 1.
         /// </summary>
         public const double MAX_TIME_RANGE = 11485;
 
@@ -50,24 +50,9 @@ namespace osu.Game.Rulesets.Mania.UI
 
         protected new ManiaRulesetConfigManager Config => (ManiaRulesetConfigManager)base.Config;
 
-        public ScrollVisualisationMethod ScrollMethod
-        {
-            get => scrollMethod;
-            set
-            {
-                if (IsLoaded)
-                    throw new InvalidOperationException($"Can't alter {nameof(ScrollMethod)} after ruleset is already loaded");
-
-                scrollMethod = value;
-            }
-        }
-
-        private ScrollVisualisationMethod scrollMethod = ScrollVisualisationMethod.Sequential;
-
-        protected override ScrollVisualisationMethod VisualisationMethod => scrollMethod;
-
         private readonly Bindable<ManiaScrollingDirection> configDirection = new Bindable<ManiaScrollingDirection>();
-        private readonly BindableDouble configTimeRange = new BindableDouble();
+        private readonly BindableInt configScrollSpeed = new BindableInt();
+        private double smoothTimeRange;
 
         // Stores the current speed adjustment active in gameplay.
         private readonly Track speedAdjustmentTrack = new TrackVirtual(0);
@@ -76,6 +61,9 @@ namespace osu.Game.Rulesets.Mania.UI
             : base(ruleset, beatmap, mods)
         {
             BarLines = new BarLineGenerator<BarLine>(Beatmap).BarLines;
+
+            TimeRange.MinValue = 1;
+            TimeRange.MaxValue = MAX_TIME_RANGE;
         }
 
         [BackgroundDependencyLoader]
@@ -90,11 +78,11 @@ namespace osu.Game.Rulesets.Mania.UI
             {
                 // Mania doesn't care about global velocity
                 p.Velocity = 1;
-                p.BaseBeatLength *= Beatmap.BeatmapInfo.BaseDifficulty.SliderMultiplier;
+                p.BaseBeatLength *= Beatmap.Difficulty.SliderMultiplier;
 
                 // For non-mania beatmap, speed changes should only happen through timing points
                 if (!isForCurrentRuleset)
-                    p.DifficultyPoint = new DifficultyControlPoint();
+                    p.EffectPoint = new EffectControlPoint();
             }
 
             BarLines.ForEach(Playfield.Add);
@@ -102,30 +90,28 @@ namespace osu.Game.Rulesets.Mania.UI
             Config.BindWith(ManiaRulesetSetting.ScrollDirection, configDirection);
             configDirection.BindValueChanged(direction => Direction.Value = (ScrollingDirection)direction.NewValue, true);
 
-            Config.BindWith(ManiaRulesetSetting.ScrollTime, configTimeRange);
-            TimeRange.MinValue = configTimeRange.MinValue;
-            TimeRange.MaxValue = configTimeRange.MaxValue;
+            Config.BindWith(ManiaRulesetSetting.ScrollSpeed, configScrollSpeed);
+            configScrollSpeed.BindValueChanged(speed => this.TransformTo(nameof(smoothTimeRange), ComputeScrollTime(speed.NewValue), 200, Easing.OutQuint));
+
+            TimeRange.Value = smoothTimeRange = ComputeScrollTime(configScrollSpeed.Value);
         }
 
-        protected override void AdjustScrollSpeed(int amount)
-        {
-            this.TransformTo(nameof(relativeTimeRange), relativeTimeRange + amount, 200, Easing.OutQuint);
-        }
-
-        private double relativeTimeRange
-        {
-            get => MAX_TIME_RANGE / configTimeRange.Value;
-            set => configTimeRange.Value = MAX_TIME_RANGE / value;
-        }
+        protected override void AdjustScrollSpeed(int amount) => configScrollSpeed.Value += amount;
 
         protected override void Update()
         {
             base.Update();
-
             updateTimeRange();
         }
 
-        private void updateTimeRange() => TimeRange.Value = configTimeRange.Value * speedAdjustmentTrack.AggregateTempo.Value * speedAdjustmentTrack.AggregateFrequency.Value;
+        private void updateTimeRange() => TimeRange.Value = smoothTimeRange * speedAdjustmentTrack.AggregateTempo.Value * speedAdjustmentTrack.AggregateFrequency.Value;
+
+        /// <summary>
+        /// Computes a scroll time (in milliseconds) from a scroll speed in the range of 1-40.
+        /// </summary>
+        /// <param name="scrollSpeed">The scroll speed.</param>
+        /// <returns>The scroll time.</returns>
+        public static double ComputeScrollTime(int scrollSpeed) => MAX_TIME_RANGE / scrollSpeed;
 
         public override PlayfieldAdjustmentContainer CreatePlayfieldAdjustmentContainer() => new ManiaPlayfieldAdjustmentContainer();
 

@@ -9,9 +9,9 @@ using Newtonsoft.Json;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.Graphics.Sprites;
-using osu.Framework.Testing;
+using osu.Framework.Localisation;
 using osu.Game.Configuration;
-using osu.Game.IO.Serialization;
+using osu.Game.Extensions;
 using osu.Game.Rulesets.UI;
 using osu.Game.Utils;
 
@@ -20,37 +20,24 @@ namespace osu.Game.Rulesets.Mods
     /// <summary>
     /// The base class for gameplay modifiers.
     /// </summary>
-    [ExcludeFromDynamicCompile]
-    public abstract class Mod : IMod, IEquatable<Mod>, IJsonSerializable
+    public abstract class Mod : IMod, IEquatable<Mod>, IDeepCloneable<Mod>
     {
-        /// <summary>
-        /// The name of this mod.
-        /// </summary>
         [JsonIgnore]
         public abstract string Name { get; }
 
-        /// <summary>
-        /// The shortened name of this mod.
-        /// </summary>
         public abstract string Acronym { get; }
 
-        /// <summary>
-        /// The icon of this mod.
-        /// </summary>
+        [JsonIgnore]
+        public virtual string ExtendedIconInformation => string.Empty;
+
         [JsonIgnore]
         public virtual IconUsage? Icon => null;
 
-        /// <summary>
-        /// The type of this mod.
-        /// </summary>
         [JsonIgnore]
         public virtual ModType Type => ModType.Fun;
 
-        /// <summary>
-        /// The user readable description of this mod.
-        /// </summary>
         [JsonIgnore]
-        public abstract string Description { get; }
+        public abstract LocalisableString Description { get; }
 
         /// <summary>
         /// The tooltip to display for this mod when used in a <see cref="ModIcon"/>.
@@ -85,10 +72,23 @@ namespace osu.Game.Rulesets.Mods
 
                 foreach ((SettingSourceAttribute attr, PropertyInfo property) in this.GetOrderedSettingsSourceProperties())
                 {
-                    var bindable = (IBindable)property.GetValue(this);
+                    var bindable = (IBindable)property.GetValue(this)!;
+
+                    string valueText;
+
+                    switch (bindable)
+                    {
+                        case Bindable<bool> b:
+                            valueText = b.Value ? "on" : "off";
+                            break;
+
+                        default:
+                            valueText = bindable.ToString() ?? string.Empty;
+                            break;
+                    }
 
                     if (!bindable.IsDefault)
-                        tooltipTexts.Add($"{attr.Label} {bindable}");
+                        tooltipTexts.Add($"{attr.Label}: {valueText}");
                 }
 
                 return string.Join(", ", tooltipTexts.Where(s => !string.IsNullOrEmpty(s)));
@@ -107,15 +107,14 @@ namespace osu.Game.Rulesets.Mods
         [JsonIgnore]
         public virtual bool HasImplementation => this is IApplicableMod;
 
-        /// <summary>
-        /// Whether this mod is playable by an end user.
-        /// Should be <c>false</c> for cases where the user is not interacting with the game (so it can be excluded from mutliplayer selection, for example).
-        /// </summary>
         [JsonIgnore]
         public virtual bool UserPlayable => true;
 
-        [Obsolete("Going forward, the concept of \"ranked\" doesn't exist. The only exceptions are automation mods, which should now override and set UserPlayable to false.")] // Can be removed 20211009
-        public virtual bool Ranked => false;
+        [JsonIgnore]
+        public virtual bool ValidForMultiplayer => true;
+
+        [JsonIgnore]
+        public virtual bool ValidForMultiplayerAsFreeMod => true;
 
         /// <summary>
         /// Whether this mod requires configuration to apply changes to the game.
@@ -129,12 +128,36 @@ namespace osu.Game.Rulesets.Mods
         [JsonIgnore]
         public virtual Type[] IncompatibleMods => Array.Empty<Type>();
 
+        private IReadOnlyDictionary<string, IBindable>? settingsBacking;
+
+        /// <summary>
+        /// All <see cref="IBindable"/> settings within this mod.
+        /// </summary>
+        /// <remarks>
+        /// The settings are returned in ascending key order as per <see cref="SettingsMap"/>.
+        /// The ordering is intentionally enforced manually, as ordering of <see cref="Dictionary{TKey,TValue}.Values"/> is unspecified.
+        /// </remarks>
+        internal IEnumerable<IBindable> SettingsBindables => SettingsMap.OrderBy(pair => pair.Key).Select(pair => pair.Value);
+
+        /// <summary>
+        /// Provides mapping of names to <see cref="IBindable"/>s of all settings within this mod.
+        /// </summary>
+        internal IReadOnlyDictionary<string, IBindable> SettingsMap =>
+            settingsBacking ??= this.GetSettingsSourceProperties()
+                                    .Select(p => p.Item2)
+                                    .ToDictionary(property => property.Name.ToSnakeCase(), property => (IBindable)property.GetValue(this)!);
+
+        /// <summary>
+        /// Whether all settings in this mod are set to their default state.
+        /// </summary>
+        protected virtual bool UsesDefaultConfiguration => SettingsBindables.All(s => s.IsDefault);
+
         /// <summary>
         /// Creates a copy of this <see cref="Mod"/> initialised to a default state.
         /// </summary>
-        public virtual Mod CreateCopy()
+        public virtual Mod DeepClone()
         {
-            var result = (Mod)Activator.CreateInstance(GetType());
+            var result = (Mod)Activator.CreateInstance(GetType())!;
             result.CopyFrom(this);
             return result;
         }
@@ -148,12 +171,50 @@ namespace osu.Game.Rulesets.Mods
             if (source.GetType() != GetType())
                 throw new ArgumentException($"Expected mod of type {GetType()}, got {source.GetType()}.", nameof(source));
 
-            foreach (var (_, prop) in this.GetSettingsSourceProperties())
+            foreach (var (_, property) in this.GetSettingsSourceProperties())
             {
-                var targetBindable = (IBindable)prop.GetValue(this);
-                var sourceBindable = (IBindable)prop.GetValue(source);
+                var targetBindable = (IBindable)property.GetValue(this)!;
+                var sourceBindable = (IBindable)property.GetValue(source)!;
 
                 CopyAdjustedSetting(targetBindable, sourceBindable);
+            }
+        }
+
+        /// <summary>
+        /// This method copies the values of all settings from <paramref name="source"/> that share the same names with this mod instance.
+        /// The most frequent use of this is when switching rulesets, in order to preserve values of common settings during the switch.
+        /// </summary>
+        /// <remarks>
+        /// The values are copied directly, without adjusting for possibly different allowed ranges of values.
+        /// If the value of a setting is not valid for this instance due to not falling inside of the allowed range, it will be clamped accordingly.
+        /// </remarks>
+        /// <param name="source">The mod to extract settings from.</param>
+        public void CopyCommonSettingsFrom(Mod source)
+        {
+            if (source.UsesDefaultConfiguration)
+                return;
+
+            foreach (var (name, targetSetting) in SettingsMap)
+            {
+                if (!source.SettingsMap.TryGetValue(name, out IBindable? sourceSetting))
+                    continue;
+
+                if (sourceSetting.IsDefault)
+                    continue;
+
+                var targetBindableType = targetSetting.GetType();
+                var sourceBindableType = sourceSetting.GetType();
+
+                // if either the target is assignable to the source or the source is assignable to the target,
+                // then we presume that the data types contained in both bindables are compatible and we can proceed with the copy.
+                // this handles cases like `Bindable<int>` and `BindableInt`.
+                if (!targetBindableType.IsAssignableFrom(sourceBindableType) && !sourceBindableType.IsAssignableFrom(targetBindableType))
+                    continue;
+
+                // TODO: special case for handling number types
+
+                PropertyInfo property = targetSetting.GetType().GetProperty(nameof(Bindable<bool>.Value))!;
+                property.SetValue(targetSetting, property.GetValue(sourceSetting));
             }
         }
 
@@ -183,23 +244,47 @@ namespace osu.Game.Rulesets.Mods
             }
         }
 
-        public bool Equals(IMod other) => other is Mod them && Equals(them);
+        public bool Equals(IMod? other) => other is Mod them && Equals(them);
 
-        public bool Equals(Mod other)
+        public bool Equals(Mod? other)
         {
             if (ReferenceEquals(null, other)) return false;
             if (ReferenceEquals(this, other)) return true;
 
             return GetType() == other.GetType() &&
-                   this.GetSettingsSourceProperties().All(pair =>
-                       EqualityComparer<object>.Default.Equals(
-                           ModUtils.GetSettingUnderlyingValue(pair.Item2.GetValue(this)),
-                           ModUtils.GetSettingUnderlyingValue(pair.Item2.GetValue(other))));
+                   SettingsBindables.SequenceEqual(other.SettingsBindables, ModSettingsEqualityComparer.Default);
+        }
+
+        public override int GetHashCode()
+        {
+            var hashCode = new HashCode();
+
+            hashCode.Add(GetType());
+
+            foreach (var setting in SettingsBindables)
+                hashCode.Add(setting.GetUnderlyingSettingValue());
+
+            return hashCode.ToHashCode();
         }
 
         /// <summary>
         /// Reset all custom settings for this mod back to their defaults.
         /// </summary>
-        public virtual void ResetSettingsToDefaults() => CopyFrom((Mod)Activator.CreateInstance(GetType()));
+        public virtual void ResetSettingsToDefaults() => CopyFrom((Mod)Activator.CreateInstance(GetType())!);
+
+        private class ModSettingsEqualityComparer : IEqualityComparer<IBindable>
+        {
+            public static ModSettingsEqualityComparer Default { get; } = new ModSettingsEqualityComparer();
+
+            public bool Equals(IBindable? x, IBindable? y)
+            {
+                object? xValue = x?.GetUnderlyingSettingValue();
+                object? yValue = y?.GetUnderlyingSettingValue();
+
+                return EqualityComparer<object>.Default.Equals(xValue, yValue);
+            }
+
+            public int GetHashCode(IBindable obj) => obj.GetUnderlyingSettingValue().GetHashCode();
+        }
     }
 }

@@ -1,6 +1,8 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
 using System;
 using System.IO;
 using System.Threading;
@@ -12,10 +14,12 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
+using osu.Framework.Input.Events;
 using osu.Framework.Platform;
 using osu.Framework.Threading;
 using osu.Game.Configuration;
 using osu.Game.Input.Bindings;
+using osu.Game.Online.Multiplayer;
 using osu.Game.Overlays;
 using osu.Game.Overlays.Notifications;
 using SixLabors.ImageSharp;
@@ -23,7 +27,7 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 
 namespace osu.Game.Graphics
 {
-    public class ScreenshotManager : Component, IKeyBindingHandler<GlobalAction>, IHandleGlobalKeyboardInput
+    public partial class ScreenshotManager : Component, IKeyBindingHandler<GlobalAction>, IHandleGlobalKeyboardInput
     {
         private readonly BindableBool cursorVisibility = new BindableBool(true);
 
@@ -39,10 +43,13 @@ namespace osu.Game.Graphics
         [Resolved]
         private GameHost host { get; set; }
 
+        [Resolved]
+        private Clipboard clipboard { get; set; }
+
         private Storage storage;
 
         [Resolved]
-        private NotificationOverlay notificationOverlay { get; set; }
+        private INotificationOverlay notificationOverlay { get; set; }
 
         private Sample shutter;
 
@@ -57,20 +64,23 @@ namespace osu.Game.Graphics
             shutter = audio.Samples.Get("UI/shutter");
         }
 
-        public bool OnPressed(GlobalAction action)
+        public bool OnPressed(KeyBindingPressEvent<GlobalAction> e)
         {
-            switch (action)
+            if (e.Repeat)
+                return false;
+
+            switch (e.Action)
             {
                 case GlobalAction.TakeScreenshot:
                     shutter.Play();
-                    TakeScreenshotAsync();
+                    TakeScreenshotAsync().FireAndForget();
                     return true;
             }
 
             return false;
         }
 
-        public void OnReleased(GlobalAction action)
+        public void OnReleased(KeyBindingReleaseEvent<GlobalAction> e)
         {
         }
 
@@ -80,84 +90,100 @@ namespace osu.Game.Graphics
         {
             Interlocked.Increment(ref screenShotTasks);
 
-            if (!captureMenuCursor.Value)
+            try
             {
-                cursorVisibility.Value = false;
-
-                // We need to wait for at most 3 draw nodes to be drawn, following which we can be assured at least one DrawNode has been generated/drawn with the set value
-                const int frames_to_wait = 3;
-
-                int framesWaited = 0;
-
-                using (var framesWaitedEvent = new ManualResetEventSlim(false))
+                if (!captureMenuCursor.Value)
                 {
-                    ScheduledDelegate waitDelegate = host.DrawThread.Scheduler.AddDelayed(() =>
-                    {
-                        if (framesWaited++ >= frames_to_wait)
-                            // ReSharper disable once AccessToDisposedClosure
-                            framesWaitedEvent.Set();
-                    }, 10, true);
+                    cursorVisibility.Value = false;
 
-                    framesWaitedEvent.Wait();
-                    waitDelegate.Cancel();
+                    // We need to wait for at most 3 draw nodes to be drawn, following which we can be assured at least one DrawNode has been generated/drawn with the set value
+                    const int frames_to_wait = 3;
+
+                    int framesWaited = 0;
+
+                    using (var framesWaitedEvent = new ManualResetEventSlim(false))
+                    {
+                        ScheduledDelegate waitDelegate = host.DrawThread.Scheduler.AddDelayed(() =>
+                        {
+                            if (framesWaited++ >= frames_to_wait)
+                                // ReSharper disable once AccessToDisposedClosure
+                                framesWaitedEvent.Set();
+                        }, 10, true);
+
+                        if (!framesWaitedEvent.Wait(1000))
+                            throw new TimeoutException("Screenshot data did not arrive in a timely fashion");
+
+                        waitDelegate.Cancel();
+                    }
+                }
+
+                using (var image = await host.TakeScreenshotAsync().ConfigureAwait(false))
+                {
+                    clipboard.SetImage(image);
+
+                    (string filename, var stream) = getWritableStream();
+
+                    if (filename == null) return;
+
+                    using (stream)
+                    {
+                        switch (screenshotFormat.Value)
+                        {
+                            case ScreenshotFormat.Png:
+                                await image.SaveAsPngAsync(stream).ConfigureAwait(false);
+                                break;
+
+                            case ScreenshotFormat.Jpg:
+                                const int jpeg_quality = 92;
+
+                                await image.SaveAsJpegAsync(stream, new JpegEncoder { Quality = jpeg_quality }).ConfigureAwait(false);
+                                break;
+
+                            default:
+                                throw new InvalidOperationException($"Unknown enum member {nameof(ScreenshotFormat)} {screenshotFormat.Value}.");
+                        }
+                    }
+
+                    notificationOverlay.Post(new SimpleNotification
+                    {
+                        Text = $"Screenshot {filename} saved!",
+                        Activated = () =>
+                        {
+                            storage.PresentFileExternally(filename);
+                            return true;
+                        }
+                    });
                 }
             }
-
-            using (var image = await host.TakeScreenshotAsync().ConfigureAwait(false))
+            finally
             {
-                if (Interlocked.Decrement(ref screenShotTasks) == 0 && cursorVisibility.Value == false)
+                if (Interlocked.Decrement(ref screenShotTasks) == 0)
                     cursorVisibility.Value = true;
-
-                var fileName = getFileName();
-                if (fileName == null) return;
-
-                var stream = storage.GetStream(fileName, FileAccess.Write);
-
-                switch (screenshotFormat.Value)
-                {
-                    case ScreenshotFormat.Png:
-                        await image.SaveAsPngAsync(stream).ConfigureAwait(false);
-                        break;
-
-                    case ScreenshotFormat.Jpg:
-                        const int jpeg_quality = 92;
-
-                        await image.SaveAsJpegAsync(stream, new JpegEncoder { Quality = jpeg_quality }).ConfigureAwait(false);
-                        break;
-
-                    default:
-                        throw new InvalidOperationException($"Unknown enum member {nameof(ScreenshotFormat)} {screenshotFormat.Value}.");
-                }
-
-                notificationOverlay.Post(new SimpleNotification
-                {
-                    Text = $"{fileName} saved!",
-                    Activated = () =>
-                    {
-                        storage.OpenInNativeExplorer();
-                        return true;
-                    }
-                });
             }
         });
 
-        private string getFileName()
+        private static readonly object filename_reservation_lock = new object();
+
+        private (string filename, Stream stream) getWritableStream()
         {
-            var dt = DateTime.Now;
-            var fileExt = screenshotFormat.ToString().ToLowerInvariant();
-
-            var withoutIndex = $"osu_{dt:yyyy-MM-dd_HH-mm-ss}.{fileExt}";
-            if (!storage.Exists(withoutIndex))
-                return withoutIndex;
-
-            for (ulong i = 1; i < ulong.MaxValue; i++)
+            lock (filename_reservation_lock)
             {
-                var indexedName = $"osu_{dt:yyyy-MM-dd_HH-mm-ss}-{i}.{fileExt}";
-                if (!storage.Exists(indexedName))
-                    return indexedName;
-            }
+                var dt = DateTime.Now;
+                string fileExt = screenshotFormat.ToString().ToLowerInvariant();
 
-            return null;
+                string withoutIndex = $"osu_{dt:yyyy-MM-dd_HH-mm-ss}.{fileExt}";
+                if (!storage.Exists(withoutIndex))
+                    return (withoutIndex, storage.GetStream(withoutIndex, FileAccess.Write, FileMode.Create));
+
+                for (ulong i = 1; i < ulong.MaxValue; i++)
+                {
+                    string indexedName = $"osu_{dt:yyyy-MM-dd_HH-mm-ss}-{i}.{fileExt}";
+                    if (!storage.Exists(indexedName))
+                        return (indexedName, storage.GetStream(indexedName, FileAccess.Write, FileMode.Create));
+                }
+
+                return (null, null);
+            }
         }
     }
 }

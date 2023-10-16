@@ -13,7 +13,7 @@ using osu.Game.Rulesets.Catch.Objects.Drawables;
 namespace osu.Game.Rulesets.Catch.Tests
 {
     [TestFixture]
-    public class TestSceneFruitObjects : CatchSkinnableTestScene
+    public partial class TestSceneFruitObjects : CatchSkinnableTestScene
     {
         protected override void LoadComplete()
         {
@@ -37,26 +37,26 @@ namespace osu.Game.Rulesets.Catch.Tests
             AddStep("show hyperdash droplet", () => SetContents(_ => createDrawableDroplet(true)));
         }
 
-        private Drawable createDrawableFruit(int indexInBeatmap, bool hyperdash = false) =>
+        private Drawable createDrawableFruit(int indexInBeatmap, bool hyperDash = false) =>
             new TestDrawableCatchHitObjectSpecimen(new DrawableFruit(new Fruit
             {
                 IndexInBeatmap = indexInBeatmap,
-                HyperDashBindable = { Value = hyperdash }
+                HyperDashBindable = { Value = hyperDash }
             }));
 
         private Drawable createDrawableBanana() =>
             new TestDrawableCatchHitObjectSpecimen(new DrawableBanana(new Banana()));
 
-        private Drawable createDrawableDroplet(bool hyperdash = false) =>
+        private Drawable createDrawableDroplet(bool hyperDash = false) =>
             new TestDrawableCatchHitObjectSpecimen(new DrawableDroplet(new Droplet
             {
-                HyperDashBindable = { Value = hyperdash }
+                HyperDashBindable = { Value = hyperDash }
             }));
 
         private Drawable createDrawableTinyDroplet() => new TestDrawableCatchHitObjectSpecimen(new DrawableTinyDroplet(new TinyDroplet()));
     }
 
-    public class TestDrawableCatchHitObjectSpecimen : CompositeDrawable
+    public partial class TestDrawableCatchHitObjectSpecimen : CompositeDrawable
     {
         public readonly ManualClock ManualClock;
 

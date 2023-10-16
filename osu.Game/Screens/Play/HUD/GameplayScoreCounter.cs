@@ -7,21 +7,27 @@ using osu.Framework.Bindables;
 using osu.Game.Configuration;
 using osu.Game.Graphics.UserInterface;
 using osu.Game.Rulesets.Scoring;
+using osu.Game.Scoring.Legacy;
 
 namespace osu.Game.Screens.Play.HUD
 {
-    public abstract class GameplayScoreCounter : ScoreCounter
+    public abstract partial class GameplayScoreCounter : ScoreCounter
     {
-        private Bindable<ScoringMode> scoreDisplayMode;
+        private Bindable<ScoringMode> scoreDisplayMode = null!;
 
-        protected GameplayScoreCounter(int leading = 0, bool useCommaSeparator = false)
-            : base(leading, useCommaSeparator)
+        private Bindable<long> totalScoreBindable = null!;
+
+        protected GameplayScoreCounter()
+            : base(6)
         {
         }
 
         [BackgroundDependencyLoader]
         private void load(OsuConfigManager config, ScoreProcessor scoreProcessor)
         {
+            totalScoreBindable = scoreProcessor.TotalScore.GetBoundCopy();
+            totalScoreBindable.BindValueChanged(_ => updateDisplayScore());
+
             scoreDisplayMode = config.GetBindable<ScoringMode>(OsuSetting.ScoreDisplayMode);
             scoreDisplayMode.BindValueChanged(scoreMode =>
             {
@@ -38,9 +44,11 @@ namespace osu.Game.Screens.Play.HUD
                     default:
                         throw new ArgumentOutOfRangeException(nameof(scoreMode));
                 }
+
+                updateDisplayScore();
             }, true);
 
-            Current.BindTo(scoreProcessor.TotalScore);
+            void updateDisplayScore() => Current.Value = scoreProcessor.GetDisplayScore(scoreDisplayMode.Value);
         }
     }
 }

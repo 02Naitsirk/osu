@@ -1,6 +1,9 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable disable
+
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Allocation;
@@ -8,22 +11,24 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Testing;
 using osu.Game.Online.API;
 using osu.Game.Online.API.Requests;
+using osu.Game.Online.API.Requests.Responses;
 using osu.Game.Online.Chat;
 using osu.Game.Tests.Visual;
-using osu.Game.Users;
 
 namespace osu.Game.Tests.Chat
 {
     [HeadlessTest]
-    public class TestSceneChannelManager : OsuTestScene
+    public partial class TestSceneChannelManager : OsuTestScene
     {
         private ChannelManager channelManager;
         private int currentMessageId;
+        private List<Message> sentMessages;
+        private List<int> silencedUserIds;
 
         [SetUp]
         public void Setup() => Schedule(() =>
         {
-            var container = new ChannelManagerContainer();
+            var container = new ChannelManagerContainer(API);
             Child = container;
             channelManager = container.ChannelManager;
         });
@@ -34,6 +39,8 @@ namespace osu.Game.Tests.Chat
             AddStep("register request handling", () =>
             {
                 currentMessageId = 0;
+                sentMessages = new List<Message>();
+                silencedUserIds = new List<int>();
 
                 ((DummyAPIAccess)API).HandleRequest = req =>
                 {
@@ -44,22 +51,32 @@ namespace osu.Game.Tests.Chat
                             return true;
 
                         case PostMessageRequest postMessage:
-                            postMessage.TriggerSuccess(new Message(++currentMessageId)
-                            {
-                                IsAction = postMessage.Message.IsAction,
-                                ChannelId = postMessage.Message.ChannelId,
-                                Content = postMessage.Message.Content,
-                                Links = postMessage.Message.Links,
-                                Timestamp = postMessage.Message.Timestamp,
-                                Sender = postMessage.Message.Sender
-                            });
+                            handlePostMessageRequest(postMessage);
+                            return true;
 
+                        case MarkChannelAsReadRequest markRead:
+                            handleMarkChannelAsReadRequest(markRead);
+                            return true;
+
+                        case ChatAckRequest ack:
+                            ack.TriggerSuccess(new ChatAckResponse { Silences = silencedUserIds.Select(u => new ChatSilence { UserId = u }).ToList() });
+                            silencedUserIds.Clear();
+                            return true;
+
+                        case GetUpdatesRequest updatesRequest:
+                            updatesRequest.TriggerSuccess(new GetUpdatesResponse
+                            {
+                                Messages = sentMessages.ToList(),
+                                Presence = new List<Channel>()
+                            });
                             return true;
                     }
 
                     return false;
                 };
             });
+
+            AddUntilStep("wait for notifications client", () => channelManager.NotificationsConnected);
         }
 
         [Test]
@@ -83,22 +100,99 @@ namespace osu.Game.Tests.Chat
             AddAssert("/np command received by channel 2", () => channel2.Messages.Last().Content.Contains("is listening to"));
         }
 
-        private Channel createChannel(int id, ChannelType type) => new Channel(new User())
+        [Test]
+        public void TestMarkAsReadIgnoringLocalMessages()
+        {
+            Channel channel = null;
+
+            AddStep("join channel and select it", () =>
+            {
+                channelManager.JoinChannel(channel = createChannel(1, ChannelType.Public));
+                channelManager.CurrentChannel.Value = channel;
+            });
+
+            AddStep("post message", () => channelManager.PostMessage("Something interesting"));
+            AddUntilStep("message postesd", () => !channel.Messages.Any(m => m is LocalMessage));
+
+            AddStep("post /help command", () => channelManager.PostCommand("help", channel));
+            AddStep("post /me command with no action", () => channelManager.PostCommand("me", channel));
+            AddStep("post /join command with no channel", () => channelManager.PostCommand("join", channel));
+            AddStep("post /join command with non-existent channel", () => channelManager.PostCommand("join i-dont-exist", channel));
+            AddStep("post non-existent command", () => channelManager.PostCommand("non-existent-cmd arg", channel));
+
+            AddStep("mark channel as read", () => channelManager.MarkChannelAsRead(channel));
+            AddAssert("channel's last read ID is set to the latest message", () => channel.LastReadId == sentMessages.Last().Id);
+        }
+
+        [Test]
+        public void TestSilencedUsersAreRemoved()
+        {
+            Channel channel = null;
+
+            AddStep("join channel and select it", () =>
+            {
+                channelManager.JoinChannel(channel = createChannel(1, ChannelType.Public));
+                channelManager.CurrentChannel.Value = channel;
+            });
+
+            AddStep("post message", () => channelManager.PostMessage("Definitely something bad"));
+
+            AddStep("mark user as silenced and send ack request", () =>
+            {
+                silencedUserIds.Add(API.LocalUser.Value.OnlineID);
+                channelManager.SendAck();
+            });
+
+            AddAssert("channel has no more messages", () => channel.Messages, () => Is.Empty);
+        }
+
+        private void handlePostMessageRequest(PostMessageRequest request)
+        {
+            var message = new Message(++currentMessageId)
+            {
+                IsAction = request.Message.IsAction,
+                ChannelId = request.Message.ChannelId,
+                Content = request.Message.Content,
+                Links = request.Message.Links,
+                Timestamp = request.Message.Timestamp,
+                Sender = request.Message.Sender,
+                Uuid = request.Message.Uuid
+            };
+
+            sentMessages.Add(message);
+            request.TriggerSuccess(message);
+        }
+
+        private void handleMarkChannelAsReadRequest(MarkChannelAsReadRequest request)
+        {
+            // only accept messages that were sent through the API
+            if (sentMessages.Contains(request.Message))
+            {
+                request.TriggerSuccess();
+            }
+            else
+            {
+                request.TriggerFailure(new APIException("unknown message!", null));
+            }
+        }
+
+        private Channel createChannel(int id, ChannelType type) => new Channel(new APIUser())
         {
             Id = id,
             Name = $"Channel {id}",
             Topic = $"Topic of channel {id} with type {type}",
             Type = type,
+            LastMessageId = 0,
         };
 
-        private class ChannelManagerContainer : CompositeDrawable
+        private partial class ChannelManagerContainer : CompositeDrawable
         {
             [Cached]
-            public ChannelManager ChannelManager { get; } = new ChannelManager();
+            public ChannelManager ChannelManager { get; }
 
-            public ChannelManagerContainer()
+            public ChannelManagerContainer(IAPIProvider apiProvider)
             {
-                InternalChild = ChannelManager;
+                InternalChild = ChannelManager = new ChannelManager(apiProvider);
             }
         }
     }

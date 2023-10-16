@@ -4,35 +4,109 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
-using osu.Framework.Allocation;
+using osu.Framework.Graphics.Containers;
+using osu.Framework.Testing;
 using osu.Game.Online.API;
+using osu.Game.Online.API.Requests;
+using osu.Game.Online.API.Requests.Responses;
 using osu.Game.Overlays;
-using osu.Game.Overlays.Profile;
 using osu.Game.Users;
 
 namespace osu.Game.Tests.Visual.Online
 {
     [TestFixture]
-    public class TestSceneUserProfileOverlay : OsuTestScene
+    public partial class TestSceneUserProfileOverlay : OsuTestScene
     {
-        protected override bool UseOnlineAPI => true;
+        private DummyAPIAccess dummyAPI => (DummyAPIAccess)API;
 
-        private readonly TestUserProfileOverlay profile;
+        private UserProfileOverlay profile = null!;
 
-        [Resolved]
-        private IAPIProvider api { get; set; }
+        [SetUpSteps]
+        public void SetUp()
+        {
+            AddStep("create profile overlay", () => Child = profile = new UserProfileOverlay());
+        }
 
-        public static readonly User TEST_USER = new User
+        [Test]
+        public void TestBlank()
+        {
+            AddStep("show overlay", () => profile.Show());
+        }
+
+        [Test]
+        public void TestActualUser()
+        {
+            AddStep("set up request handling", () =>
+            {
+                dummyAPI.HandleRequest = req =>
+                {
+                    if (req is GetUserRequest getUserRequest)
+                    {
+                        getUserRequest.TriggerSuccess(TEST_USER);
+                        return true;
+                    }
+
+                    return false;
+                };
+            });
+            AddStep("show user", () => profile.ShowUser(new APIUser { Id = 1 }));
+            AddToggleStep("toggle visibility", visible => profile.State.Value = visible ? Visibility.Visible : Visibility.Hidden);
+            AddStep("log out", () => dummyAPI.Logout());
+            AddStep("log back in", () => dummyAPI.Login("username", "password"));
+        }
+
+        [Test]
+        public void TestLoading()
+        {
+            GetUserRequest pendingRequest = null!;
+
+            AddStep("set up request handling", () =>
+            {
+                dummyAPI.HandleRequest = req =>
+                {
+                    if (req is GetUserRequest getUserRequest)
+                    {
+                        pendingRequest = getUserRequest;
+                        return true;
+                    }
+
+                    return false;
+                };
+            });
+            AddStep("show user", () => profile.ShowUser(new APIUser { Id = 1 }));
+            AddWaitStep("wait some", 3);
+            AddStep("complete request", () => pendingRequest.TriggerSuccess(TEST_USER));
+        }
+
+        public static readonly APIUser TEST_USER = new APIUser
         {
             Username = @"Somebody",
             Id = 1,
-            Country = new Country { FullName = @"Alien" },
+            CountryCode = CountryCode.JP,
             CoverUrl = @"https://osu.ppy.sh/images/headers/profile-covers/c1.jpg",
             JoinDate = DateTimeOffset.Now.AddDays(-1),
             LastVisit = DateTimeOffset.Now,
-            ProfileOrder = new[] { "me" },
+            Groups = new[]
+            {
+                new APIUserGroup { Colour = "#EB47D0", ShortName = "DEV", Name = "Developers" },
+                new APIUserGroup { Colour = "#A347EB", ShortName = "BN", Name = "Beatmap Nominators", Playmodes = new[] { "mania" } },
+                new APIUserGroup { Colour = "#A347EB", ShortName = "BN", Name = "Beatmap Nominators", Playmodes = new[] { "osu", "taiko" } },
+                new APIUserGroup { Colour = "#A347EB", ShortName = "BN", Name = "Beatmap Nominators", Playmodes = new[] { "osu", "taiko", "fruits", "mania" } },
+                new APIUserGroup { Colour = "#A347EB", ShortName = "BN", Name = "Beatmap Nominators (Probationary)", Playmodes = new[] { "osu", "taiko", "fruits", "mania" }, IsProbationary = true }
+            },
+            ProfileOrder = new[]
+            {
+                @"me",
+                @"recent_activity",
+                @"beatmaps",
+                @"historical",
+                @"kudosu",
+                @"top_ranks",
+                @"medals"
+            },
             Statistics = new UserStatistics
             {
+                IsRanked = true,
                 GlobalRank = 2148,
                 CountryRank = 1,
                 PP = 4567.89m,
@@ -41,11 +115,18 @@ namespace osu.Game.Tests.Visual.Online
                     Current = 727,
                     Progress = 69,
                 },
-                RankHistory = new User.RankHistoryData
+                RankHistory = new APIRankHistory
                 {
                     Mode = @"osu",
                     Data = Enumerable.Range(2345, 45).Concat(Enumerable.Range(2109, 40)).ToArray()
                 },
+            },
+            TournamentBanner = new TournamentBanner
+            {
+                Id = 13926,
+                TournamentId = 35,
+                ImageLowRes = "https://assets.ppy.sh/tournament-banners/official/owc2022/profile/winner_US.jpg",
+                Image = "https://assets.ppy.sh/tournament-banners/official/owc2022/profile/winner_US@2x.jpg",
             },
             Badges = new[]
             {
@@ -53,64 +134,28 @@ namespace osu.Game.Tests.Visual.Online
                 {
                     AwardedAt = DateTimeOffset.FromUnixTimeSeconds(1505741569),
                     Description = "Outstanding help by being a voluntary test subject.",
-                    ImageUrl = "https://assets.ppy.sh/profile-badges/contributor.jpg"
-                }
+                    ImageUrl = "https://assets.ppy.sh/profile-badges/contributor-new@2x.png",
+                    ImageUrlLowRes = "https://assets.ppy.sh/profile-badges/contributor-new.png",
+                    Url = "https://osu.ppy.sh/wiki/en/People/Community_Contributors",
+                },
+                new Badge
+                {
+                    AwardedAt = DateTimeOffset.FromUnixTimeSeconds(1505741569),
+                    Description = "Badge without a url.",
+                    ImageUrl = "https://assets.ppy.sh/profile-badges/contributor@2x.png",
+                    ImageUrlLowRes = "https://assets.ppy.sh/profile-badges/contributor.png",
+                },
             },
             Title = "osu!volunteer",
             Colour = "ff0000",
-            Achievements = Array.Empty<User.UserAchievement>(),
+            Achievements = Array.Empty<APIUserAchievement>(),
+            PlayMode = "osu",
+            Kudosu = new APIUser.KudosuCount
+            {
+                Available = 10,
+                Total = 50
+            },
+            SupportLevel = 2,
         };
-
-        public TestSceneUserProfileOverlay()
-        {
-            Add(profile = new TestUserProfileOverlay());
-        }
-
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-
-            AddStep("Show offline dummy", () => profile.ShowUser(TEST_USER, false));
-
-            AddStep("Show null dummy", () => profile.ShowUser(new User
-            {
-                Username = @"Null",
-                Id = 1,
-            }, false));
-
-            AddStep("Show ppy", () => profile.ShowUser(new User
-            {
-                Username = @"peppy",
-                Id = 2,
-                IsSupporter = true,
-                Country = new Country { FullName = @"Australia", FlagName = @"AU" },
-                CoverUrl = @"https://osu.ppy.sh/images/headers/profile-covers/c3.jpg"
-            }, api.IsLoggedIn));
-
-            AddStep("Show flyte", () => profile.ShowUser(new User
-            {
-                Username = @"flyte",
-                Id = 3103765,
-                Country = new Country { FullName = @"Japan", FlagName = @"JP" },
-                CoverUrl = @"https://osu.ppy.sh/images/headers/profile-covers/c6.jpg"
-            }, api.IsLoggedIn));
-
-            AddStep("Show bancho", () => profile.ShowUser(new User
-            {
-                Username = @"BanchoBot",
-                Id = 3,
-                IsBot = true,
-                Country = new Country { FullName = @"Saint Helena", FlagName = @"SH" },
-                CoverUrl = @"https://osu.ppy.sh/images/headers/profile-covers/c4.jpg"
-            }, api.IsLoggedIn));
-
-            AddStep("Hide", profile.Hide);
-            AddStep("Show without reload", profile.Show);
-        }
-
-        private class TestUserProfileOverlay : UserProfileOverlay
-        {
-            public new ProfileHeader Header => base.Header;
-        }
     }
 }

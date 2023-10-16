@@ -3,18 +3,14 @@
 
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Framework.Input.Events;
 using osuTK;
 using osu.Game.Screens.Play.PlayerSettings;
-using osuTK.Input;
 
 namespace osu.Game.Screens.Play.HUD
 {
-    public class PlayerSettingsOverlay : VisibilityContainer
+    public partial class PlayerSettingsOverlay : VisibilityContainer
     {
         private const int fade_duration = 200;
-
-        public bool ReplayLoaded;
 
         public readonly PlaybackSettings PlaybackSettings;
 
@@ -22,8 +18,6 @@ namespace osu.Game.Screens.Play.HUD
 
         public PlayerSettingsOverlay()
         {
-            AlwaysPresent = true;
-
             Anchor = Anchor.TopRight;
             Origin = Anchor.TopRight;
             AutoSizeAxes = Axes.Both;
@@ -37,34 +31,14 @@ namespace osu.Game.Screens.Play.HUD
                 Spacing = new Vector2(0, 20),
                 Children = new PlayerSettingsGroup[]
                 {
-                    //CollectionSettings = new CollectionSettings(),
-                    //DiscussionSettings = new DiscussionSettings(),
-                    PlaybackSettings = new PlaybackSettings(),
-                    VisualSettings = new VisualSettings { Expanded = false }
+                    PlaybackSettings = new PlaybackSettings { Expanded = { Value = false } },
+                    VisualSettings = new VisualSettings { Expanded = { Value = false } },
+                    new AudioSettings { Expanded = { Value = false } }
                 }
             };
         }
 
         protected override void PopIn() => this.FadeIn(fade_duration);
         protected override void PopOut() => this.FadeOut(fade_duration);
-
-        // We want to handle keyboard inputs all the time in order to trigger ToggleVisibility() when not visible
-        public override bool PropagateNonPositionalInputSubTree => true;
-
-        protected override bool OnKeyDown(KeyDownEvent e)
-        {
-            if (e.Repeat) return false;
-
-            if (e.ControlPressed)
-            {
-                if (e.Key == Key.H && ReplayLoaded)
-                {
-                    ToggleVisibility();
-                    return true;
-                }
-            }
-
-            return base.OnKeyDown(e);
-        }
     }
 }

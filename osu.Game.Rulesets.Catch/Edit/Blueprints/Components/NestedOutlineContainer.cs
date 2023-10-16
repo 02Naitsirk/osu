@@ -11,19 +11,13 @@ using osu.Game.Rulesets.UI.Scrolling;
 
 namespace osu.Game.Rulesets.Catch.Edit.Blueprints.Components
 {
-    public class NestedOutlineContainer : CompositeDrawable
+    public partial class NestedOutlineContainer : CompositeDrawable
     {
         private readonly List<CatchHitObject> nestedHitObjects = new List<CatchHitObject>();
 
         public NestedOutlineContainer()
         {
             Anchor = Anchor.BottomLeft;
-        }
-
-        public void UpdatePositionFrom(ScrollingHitObjectContainer hitObjectContainer, CatchHitObject parentHitObject)
-        {
-            X = parentHitObject.OriginalX;
-            Y = hitObjectContainer.PositionAtTime(parentHitObject.StartTime);
         }
 
         public void UpdateNestedObjectsFrom(ScrollingHitObjectContainer hitObjectContainer, CatchHitObject parentHitObject)
@@ -34,7 +28,7 @@ namespace osu.Game.Rulesets.Catch.Edit.Blueprints.Components
                                                      .Where(h => !(h is TinyDroplet)));
 
             while (nestedHitObjects.Count < InternalChildren.Count)
-                RemoveInternal(InternalChildren[^1]);
+                RemoveInternal(InternalChildren[^1], true);
 
             while (InternalChildren.Count < nestedHitObjects.Count)
                 AddInternal(new FruitOutline());
@@ -43,7 +37,8 @@ namespace osu.Game.Rulesets.Catch.Edit.Blueprints.Components
             {
                 var hitObject = nestedHitObjects[i];
                 var outline = (FruitOutline)InternalChildren[i];
-                outline.UpdateFrom(hitObjectContainer, hitObject, parentHitObject);
+                outline.Position = CatchHitObjectUtils.GetStartPosition(hitObjectContainer, hitObject) - Position;
+                outline.UpdateFrom(hitObject);
                 outline.Scale *= hitObject is Droplet ? 0.5f : 1;
             }
         }
