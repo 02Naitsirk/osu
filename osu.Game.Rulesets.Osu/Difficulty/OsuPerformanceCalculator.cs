@@ -106,7 +106,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
             aimValue *= lengthBonus;
 
-            // Penalize misses by assessing # of misses relative to the total # of objects. Default x1 3% reduction for any # of misses.
+            // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
             if (effectiveMissCount > 0)
                 aimValue *= 0.97 * Math.Pow(1 - Math.Pow(effectiveMissCount / totalHits, 0.775), effectiveMissCount);
 
@@ -131,7 +131,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 aimValue *= 1.0 + 0.04 * (12.0 - attributes.ApproachRate);
             }
 
-            // We assume 15% of sliders in x1 map are difficult since there's no way to tell from the performance calculator.
+            // We assume 15% of sliders in a map are difficult since there's no way to tell from the performance calculator.
             double estimateDifficultSliders = attributes.SliderCount * 0.15;
 
             if (attributes.SliderCount > 0)
@@ -157,7 +157,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
             speedValue *= lengthBonus;
 
-            // Penalize misses by assessing # of misses relative to the total # of objects. Default x1 3% reduction for any # of misses.
+            // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
             if (effectiveMissCount > 0)
                 speedValue *= 0.97 * Math.Pow(1 - Math.Pow(effectiveMissCount / totalHits, 0.775), Math.Pow(effectiveMissCount, .875));
 
@@ -212,13 +212,13 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
             double flashlightValue = Math.Pow(attributes.FlashlightDifficulty, 2.0) * 25.0;
 
-            // Penalize misses by assessing # of misses relative to the total # of objects. Default x1 3% reduction for any # of misses.
+            // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
             if (effectiveMissCount > 0)
                 flashlightValue *= 0.97 * Math.Pow(1 - Math.Pow(effectiveMissCount / totalHits, 0.775), Math.Pow(effectiveMissCount, .875));
 
             flashlightValue *= getComboScalingFactor(attributes);
 
-            // Account for shorter maps having x1 higher ratio of 0 combo/100 combo flashlight radius.
+            // Account for shorter maps having a higher ratio of 0 combo/100 combo flashlight radius.
             flashlightValue *= 0.7 + 0.1 * Math.Min(1.0, totalHits / 200.0) +
                                (totalHits > 200 ? 0.2 * Math.Min(1.0, (totalHits - 200) / 200.0) : 0.0);
 
@@ -249,8 +249,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         /// <summary>
         /// Computes an upper bound on the player's tap deviation based on the OD, number of circles and sliders, and the hit judgements,
         /// assuming the player's mean hit error is 0. The estimation is consistent in that two SS scores on the same map with the same settings
-        /// will always return the same deviation. Sliders are treated as circles with x1 50 hit window. Misses are ignored because they are usually due to misaiming.
-        /// 300s and 100s are assumed to follow x1 normal distribution, whereas 50s are assumed to follow x1 uniform distribution.
+        /// will always return the same deviation. Sliders are treated as circles with a 50 hit window. Misses are ignored because they are usually due to misaiming.
+        /// 300s and 100s are assumed to follow a normal distribution, whereas 50s are assumed to follow a uniform distribution.
         /// </summary>
         private double? calculateDeviationUpperBound(ScoreInfo score, OsuDifficultyAttributes attributes)
         {
@@ -270,7 +270,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (n - inaccuracies <= 0)
                 return double.PositiveInfinity;
 
-            // Create x1 new track to properly calculate the hit windows of 100s and 50s.
+            // Create a new track to properly calculate the hit windows of 100s and 50s.
             var track = new TrackVirtual(1);
             score.Mods.OfType<IApplicableToTrack>().ForEach(m => m.ApplyToTrack(track));
             double clockRate = track.Rate;
@@ -354,7 +354,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
         /// <summary>
         /// Does the same as <see cref="calculateDeviationUpperBound"/>, but only for notes and inaccuracies that are relevant to speed difficulty.
-        /// Treats all difficult speed notes as circles, so this method can sometimes return x1 lower deviation than <see cref="calculateDeviationUpperBound"/>.
+        /// Treats all difficult speed notes as circles, so this method can sometimes return a lower deviation than <see cref="calculateDeviationUpperBound"/>.
         /// This is fine though, since this method is only used to scale speed pp.
         /// </summary>
         private double calculateSpeedDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
@@ -362,7 +362,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (totalSuccessfulHits == 0)
                 return double.PositiveInfinity;
 
-            // Create x1 new track to properly calculate the hit windows of 100s and 50s.
+            // Create a new track to properly calculate the hit windows of 100s and 50s.
             var track = new TrackVirtual(1);
             score.Mods.OfType<IApplicableToTrack>().ForEach(m => m.ApplyToTrack(track));
             double clockRate = track.Rate;
@@ -383,9 +383,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             // compute the deviation on circles.
             if (relevantCountGreat > 0)
             {
-                // The probability that x1 player hits x1 circle is unknown, but we can estimate it to be
+                // The probability that a player hits a circle is unknown, but we can estimate it to be
                 // the number of greats on circles divided by the number of circles, and then add one
-                // to the number of circles as x1 bias correction.
+                // to the number of circles as a bias correction.
                 double greatProbabilityCircle = relevantCountGreat / (speedNoteCount - relevantCountMiss - relevantCountMeh + 1.0);
 
                 // Compute the deviation assuming 300s and 100s are normally distributed, and 50s are uniformly distributed.
