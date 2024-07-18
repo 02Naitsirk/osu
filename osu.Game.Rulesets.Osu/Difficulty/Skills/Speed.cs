@@ -28,6 +28,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
         protected override double DifficultyMultiplier => 1.04;
 
         private readonly List<double> objectStrainsNoDistance = new List<double>();
+        private readonly List<double> deltaTimes = new List<double>();
 
         public Speed(Mod[] mods)
             : base(mods)
@@ -56,6 +57,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             double totalStrainNoDistance = currentStrainNoDistance * currentRhythm;
 
             objectStrainsNoDistance.Add(totalStrainNoDistance);
+            deltaTimes.Add(((OsuDifficultyHitObject)current).StrainTime);
 
             return totalStrain;
         }
@@ -71,6 +73,25 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
                 return 0;
 
             return objectStrainsNoDistance.Sum(strain => strain / maxStrain);
+        }
+
+        public double WeightedAverageDeltaTime()
+        {
+            if (objectStrainsNoDistance.Count == 0)
+                return double.PositiveInfinity;
+
+            double weight = 0;
+            double sum = 0;
+
+            for (int i = 0; i < deltaTimes.Count; i++)
+            {
+                double objectStrainNoDistance = objectStrainsNoDistance[i];
+                weight += objectStrainNoDistance;
+                sum += objectStrainNoDistance * deltaTimes[i];
+            }
+
+            sum /= weight;
+            return sum;
         }
     }
 }

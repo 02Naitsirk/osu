@@ -32,6 +32,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         [JsonProperty("speed_note_count")]
         public double SpeedNoteCount { get; set; }
 
+        [JsonProperty("avg_delta_time")]
+        public double AverageDeltaTime { get; set; }
+
         /// <summary>
         /// The difficulty corresponding to the flashlight skill.
         /// </summary>
@@ -114,6 +117,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             FlashlightDifficulty = values.GetValueOrDefault(ATTRIB_ID_FLASHLIGHT);
             SliderFactor = values[ATTRIB_ID_SLIDER_FACTOR];
             SpeedNoteCount = values[ATTRIB_ID_SPEED_NOTE_COUNT];
+            AverageDeltaTime = values[ATTRIB_ID_AVG_DELTA_TIME];
 
             DrainRate = onlineInfo.DrainRate;
             HitCircleCount = onlineInfo.CircleCount;

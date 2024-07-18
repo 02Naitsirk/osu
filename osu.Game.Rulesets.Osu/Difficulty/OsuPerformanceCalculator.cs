@@ -141,7 +141,6 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             }
 
             aimValue *= 0.98 + Math.Pow(100.0 / 9, 2) / 2500; // OD 11 SS stays the same.
-            aimValue *= 1 / (1 + Math.Pow((double)deviation / 30, 4)); // Scale the aim value with deviation.
 
             return aimValue;
         }
@@ -180,8 +179,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 speedValue *= 1.0 + 0.04 * (12.0 - attributes.ApproachRate);
             }
 
+            double avgDeltaTime = attributes.AverageDeltaTime;
+
             speedValue *= 0.95 + Math.Pow(100.0 / 9, 2) / 750; // OD 11 SS stays the same.
-            speedValue *= 1 / (1 + Math.Pow(speedDeviation / 20, 4)); // Scale the speed value with speed deviation.
+            speedValue *= 1 / (1 + Math.Pow(4 * speedDeviation / avgDeltaTime, 4));
 
             return speedValue;
         }
