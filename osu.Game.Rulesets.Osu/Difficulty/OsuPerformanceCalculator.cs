@@ -9,6 +9,7 @@ using osu.Framework.Audio.Track;
 using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Game.Rulesets.Difficulty;
 using osu.Game.Rulesets.Mods;
+using osu.Game.Rulesets.Osu.Difficulty.Skills;
 using osu.Game.Rulesets.Osu.Mods;
 using osu.Game.Rulesets.Scoring;
 using osu.Game.Scoring;
@@ -107,7 +108,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (deviation == double.PositiveInfinity)
                 return 0.0;
 
-            double aimValue = Math.Pow(5.0 * Math.Max(1.0, attributes.AimDifficulty / 0.0675) - 4.0, 3.0) / 100000.0;
+            double aimValue = OsuStrainSkill.DifficultyToPerformance(attributes.AimDifficulty);
 
             double lengthBonus = 0.95 + 0.4 * Math.Min(1.0, totalHits / 2000.0) +
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
@@ -165,7 +166,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (score.Mods.Any(h => h is OsuModRelax) || speedDeviation == double.PositiveInfinity)
                 return 0.0;
 
-            double speedValue = Math.Pow(5.0 * Math.Max(1.0, attributes.SpeedDifficulty / 0.0675) - 4.0, 3.0) / 100000.0;
+            double speedValue = OsuStrainSkill.DifficultyToPerformance(attributes.SpeedDifficulty);
 
             double lengthBonus = 0.95 + 0.4 * Math.Min(1.0, totalHits / 2000.0) +
                                  (totalHits > 2000 ? Math.Log10(totalHits / 2000.0) * 0.5 : 0.0);
@@ -254,7 +255,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (!score.Mods.Any(h => h is OsuModFlashlight) || deviation == double.PositiveInfinity)
                 return 0.0;
 
-            double flashlightValue = Math.Pow(attributes.FlashlightDifficulty, 2.0) * 25.0;
+            double flashlightValue = Flashlight.DifficultyToPerformance(attributes.FlashlightDifficulty);
 
             // Penalize misses by assessing # of misses relative to the total # of objects. Default a 3% reduction for any # of misses.
             if (effectiveMissCount > 0)
