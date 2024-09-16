@@ -202,8 +202,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             // Scale the speed value with speed deviation.
             // Use additional bad UR penalty for high speed difficulty
             // (WARNING: potentially unstable, but instability detected in playable difficulty range).
-            double adjustedSpeedDeviation = speedDeviation * calculateDeviationArAdjust(attributes.ApproachRate);
-            speedValue *= SpecialFunctions.Erf(22 / (Math.Sqrt(2) * adjustedSpeedDeviation * Math.Max(1, Math.Pow(attributes.SpeedDifficulty / 4.5, 1.2))));
+            double arAdjust = calculateDeviationArAdjust(attributes.ApproachRate);
+            double adjustedSpeedDeviation = speedDeviation * (arAdjust < 1 ? Math.Pow(arAdjust, 0.7) : arAdjust);
+            speedValue *= SpecialFunctions.Erf(20.5 / (Math.Sqrt(2) * adjustedSpeedDeviation * Math.Max(1, Math.Pow(attributes.SpeedDifficulty / 4.5, 1.2))));
             speedValue *= 0.95 + Math.Pow(100.0 / 9, 2) / 750; // OD 11 SS stays the same.
 
             return speedValue;
@@ -224,8 +225,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double liveLengthBonus = Math.Min(1.15, Math.Pow(amountHitObjectsWithAccuracy / 1000.0, 0.3));
             double threshold = 1000 * Math.Pow(1.15, 1 / 0.3); // Number of objects until length bonus caps.
 
-            // Adjust deviation as it's harder to get good acc on lower AR
-            double adjustedDeviation = deviation * calculateDeviationArAdjust(attributes.ApproachRate);
+            // Only apply penalty for AR>10 (for balancing sake)
+            double adjustedDeviation = deviation * Math.Max(1, calculateDeviationArAdjust(attributes.ApproachRate));
 
             // Some fancy stuff to make curve similar to live
             double scaling = 0.9 * Math.Sqrt(2) * Math.Log(1.52163) * SpecialFunctions.ErfInv(1 / (1 + 1 / Math.Min(amountHitObjectsWithAccuracy, threshold))) / 6;
@@ -341,8 +342,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             if (totalSuccessfulHits == 0)
                 return double.PositiveInfinity;
 
-            // Calculate accuracy assuming the worst case scenario
-            double speedNoteCount = attributes.SpeedNoteCount;
+            // Calculate accuracy assuming close to the worst case scenario
+            double speedNoteCount = attributes.SpeedNoteCount + 0.1 * Math.Max(0, totalHits - attributes.SpeedNoteCount);
 
             // Assume worst case: all mistakes was on speed notes
             double relevantCountMiss = Math.Min(countMiss, speedNoteCount);
@@ -409,7 +410,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         private double calculateSpeedRakeNerf(OsuDifficultyAttributes attributes)
         {
             // Base speed value
-            double speedValue = 4 * Math.Pow(attributes.SpeedDifficulty, 3);
+            double speedValue = OsuStrainSkill.DifficultyToPerformance(attributes.SpeedDifficulty);
 
             // Starting from this pp amount - penalty will be applied
             double abusePoint = 100 + 260 * Math.Pow(22 / speedDeviation, 5.8);
@@ -433,8 +434,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double adjustedDeviation = deviation * calculateDeviationArAdjust(attributes.ApproachRate);
 
             // Base values
-            double aimNoSlidersValue = 4 * Math.Pow(attributes.AimDifficulty * attributes.SliderFactor, 3);
-            double speedValue = 4 * Math.Pow(attributes.SpeedDifficulty, 3);
+            double aimNoSlidersValue = OsuStrainSkill.DifficultyToPerformance(attributes.AimDifficulty * attributes.SliderFactor);
+            double speedValue = OsuStrainSkill.DifficultyToPerformance(attributes.SpeedDifficulty);
             double totalValue = Math.Pow(Math.Pow(aimNoSlidersValue, 1.1) + Math.Pow(speedValue, 1.1), 1 / 1.1);
 
             // Starting from this pp amount - penalty will be applied
@@ -459,7 +460,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         private double getComboScalingFactor(OsuDifficultyAttributes attributes) => attributes.MaxCombo <= 0 ? 1.0 : Math.Min(Math.Pow(scoreMaxCombo, 0.8) / Math.Pow(attributes.MaxCombo, 0.8), 1.0);
 
         // Bonus for low AR to account for the fact that it's more difficult to get low UR on low AR
-        private static double calculateDeviationArAdjust(double AR) => 0.475 + 0.7 / (1.0 + Math.Pow(1.73, 7.9 - AR));
+        private static double calculateDeviationArAdjust(double AR) => 0.4 + 0.775 / (1.0 + Math.Pow(1.73, 7.9 - AR));
 
         private int totalHits => countGreat + countOk + countMeh + countMiss;
 
