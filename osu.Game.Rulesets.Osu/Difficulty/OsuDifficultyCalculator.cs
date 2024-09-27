@@ -40,11 +40,12 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double aimRatingNoSliders = Math.Sqrt(skills[1].DifficultyValue()) * difficulty_multiplier;
             double speedRating = Math.Sqrt(skills[2].DifficultyValue()) * difficulty_multiplier;
             double speedNotes = ((Speed)skills[2]).RelevantNoteCount();
+            double effectiveSSDeviation = skills[3].DifficultyValue();
 
             double flashlightRating = 0.0;
 
             if (mods.Any(h => h is OsuModFlashlight))
-                flashlightRating = Math.Sqrt(skills[3].DifficultyValue()) * difficulty_multiplier;
+                flashlightRating = Math.Sqrt(skills[4].DifficultyValue()) * difficulty_multiplier;
 
             double sliderFactor = aimRating > 0 ? aimRatingNoSliders / aimRating : 1;
 
@@ -108,6 +109,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 HitCircleCount = hitCirclesCount,
                 SliderCount = sliderCount,
                 SpinnerCount = spinnerCount,
+                EffectiveSSDeviation = effectiveSSDeviation,
             };
 
             return attributes;
@@ -134,7 +136,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             {
                 new Aim(mods, true),
                 new Aim(mods, false),
-                new Speed(mods)
+                new Speed(mods),
+                new Accuracy(mods)
             };
 
             if (mods.Any(h => h is OsuModFlashlight))

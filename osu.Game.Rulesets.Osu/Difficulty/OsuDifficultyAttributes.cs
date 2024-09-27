@@ -39,6 +39,12 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         public double FlashlightDifficulty { get; set; }
 
         /// <summary>
+        /// The deviation needed to SS the map, on average.
+        /// </summary>
+        [JsonProperty("effective_ss_deviation")]
+        public double EffectiveSSDeviation { get; set; }
+
+        /// <summary>
         /// Describes how much of <see cref="AimDifficulty"/> is contributed to by hitcircles or sliders.
         /// A value closer to 1.0 indicates most of <see cref="AimDifficulty"/> is contributed by hitcircles.
         /// A value closer to 0.0 indicates most of <see cref="AimDifficulty"/> is contributed by sliders.

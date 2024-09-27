@@ -5,10 +5,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MathNet.Numerics;
+using MathNet.Numerics.Distributions;
 using osu.Framework.Audio.Track;
 using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Game.Rulesets.Difficulty;
 using osu.Game.Rulesets.Mods;
+using osu.Game.Rulesets.Osu.Difficulty.Skills;
 using osu.Game.Rulesets.Osu.Mods;
 using osu.Game.Rulesets.Scoring;
 using osu.Game.Scoring;
@@ -71,7 +73,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             double clockRate = getClockRate(score);
             hitWindow300 = 80 - 6 * osuAttributes.OverallDifficulty;
 
-            deviation = calculateDeviation(score, osuAttributes);
+            deviation = calculateEffectiveDeviation(score, osuAttributes);
             speedDeviation = calculateSpeedDeviation(score, osuAttributes);
 
             double aimValue = computeAimValue(score, osuAttributes);
@@ -94,7 +96,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 Accuracy = accuracyValue,
                 Flashlight = flashlightValue,
                 EffectiveMissCount = effectiveMissCount,
-                Deviation = deviation,
+                EffectiveDeviation = deviation,
                 SpeedDeviation = speedDeviation,
                 Total = totalValue
             };
@@ -102,9 +104,6 @@ namespace osu.Game.Rulesets.Osu.Difficulty
 
         private double computeAimValue(ScoreInfo score, OsuDifficultyAttributes attributes)
         {
-            if (deviation == double.PositiveInfinity)
-                return 0.0;
-
             double aimValue = Math.Pow(5.0 * Math.Max(1.0, attributes.AimDifficulty / 0.0675) - 4.0, 3.0) / 100000.0;
 
             double lengthBonus = 0.95 + 0.4 * Math.Min(1.0, totalHits / 2000.0) +
@@ -118,8 +117,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             aimValue *= getComboScalingFactor(attributes);
 
             double approachRateFactor = 0.0;
-            if (attributes.ApproachRate > 10.33)
-                approachRateFactor = 0.3 * (attributes.ApproachRate - 10.33);
+            if (attributes.ApproachRate > 31 / 3.0)
+                approachRateFactor = 0.05 * (attributes.ApproachRate - 31 / 3.0);
             else if (attributes.ApproachRate < 8.0)
                 approachRateFactor = 0.05 * (8.0 - attributes.ApproachRate);
 
@@ -133,7 +132,7 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             else if (score.Mods.Any(m => m is OsuModHidden || m is OsuModTraceable))
             {
                 // We want to give more reward for lower AR when it comes to aim and HD. This nerfs high AR and buffs lower AR.
-                aimValue *= 1.0 + 0.04 * (12.0 - attributes.ApproachRate);
+                aimValue *= 1.0 + 0.04 * (12 - attributes.ApproachRate);
             }
 
             // We assume 15% of sliders in a map are difficult since there's no way to tell from the performance calculator.
@@ -146,8 +145,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
                 aimValue *= sliderNerfFactor;
             }
 
-            double prod = Math.Sqrt(attributes.AimDifficulty * attributes.SpeedDifficulty) * deviation;
-            aimValue *= Math.Pow(SpecialFunctions.Erf(130 / prod), 1.5);
+            double aimDeviation = calculateAimDeviation(score, attributes);
+            aimValue *= Math.Pow(SpecialFunctions.Erf(20 / aimDeviation), 1.5);
             aimValue *= 0.98 + Math.Pow(100.0 / 9, 2) / 2500; // OD 11.1 SS stays the same.
 
             return aimValue;
@@ -171,8 +170,8 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             speedValue *= getComboScalingFactor(attributes);
 
             double approachRateFactor = 0.0;
-            if (attributes.ApproachRate > 10.33)
-                approachRateFactor = 0.3 * (attributes.ApproachRate - 10.33);
+            if (attributes.ApproachRate > 31 / 3.0)
+                approachRateFactor = 0.05 * (attributes.ApproachRate - 31 / 3.0);
 
             speedValue *= 1.0 + approachRateFactor * lengthBonus; // Buff for longer maps with high AR.
 
@@ -184,12 +183,13 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             else if (score.Mods.Any(m => m is OsuModHidden || m is OsuModTraceable))
             {
                 // We want to give more reward for lower AR when it comes to aim and HD. This nerfs high AR and buffs lower AR.
-                speedValue *= 1.0 + 0.04 * (12.0 - attributes.ApproachRate);
+                speedValue *= 1.0 + 0.04 * (12 - attributes.ApproachRate);
             }
 
-            double prod = attributes.SpeedDifficulty * speedDeviation;
-            speedValue *= Math.Pow(SpecialFunctions.Erf(67.5 / prod), 1.5);
+            speedValue *= Math.Pow(SpecialFunctions.Erf(20 / speedDeviation), 1.5);
             speedValue *= 0.95 + Math.Pow(100.0 / 9, 2) / 750; // OD 11.1 SS stays the same.
+
+            speedValue *= calculateSpeedRakeNerf(attributes);
 
             return speedValue;
         }
@@ -255,14 +255,31 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             return Math.Max(countMiss, comboBasedMissCount);
         }
 
+        private double calculateAimDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
+        {
+            double hitWindow300 = 80 - 6 * attributes.OverallDifficulty;
+            double aimDeviation = hitWindow300 / (Math.Sqrt(2) * SpecialFunctions.ErfInv(countGreat / (totalHits + 1.0)));
+            double arBonusBegin = 8.0;
+
+            if (attributes.ApproachRate < arBonusBegin)
+            {
+                double s = 1.0;
+                double preempt(double ar) => ar > 5.0 ? 150 * (13 - ar) : 120 * (15 - ar);
+                double arBonus(double ar) => Math.Min(1, 1 + s * (preempt(arBonusBegin) / preempt(ar) - 1));
+                aimDeviation *= arBonus(attributes.ApproachRate);
+            }
+
+            return aimDeviation;
+        }
+
         /// <summary>
-        /// Using <see cref="calculateDeviation"/> estimates player's deviation on speed notes, assuming worst-case.
+        /// Using <see cref="calculateEffectiveDeviation"/> estimates player's deviation on speed notes, assuming worst-case.
         /// Treats all speed notes as hit circles. This is not good way to do this, but fixing this is impossible under the limitation of current speed pp.
         /// If score was set with slideracc - tries to remove mistaps on sliders from total mistaps.
         /// </summary>
         /// <summary>
-        /// Does the same as <see cref="calculateDeviation"/>, but only for notes and inaccuracies that are relevant to speed difficulty.
-        /// Treats all difficult speed notes as circles, so this method can sometimes return a lower deviation than <see cref="calculateDeviation"/>.
+        /// Does the same as <see cref="calculateEffectiveDeviation"/>, but only for notes and inaccuracies that are relevant to speed difficulty.
+        /// Treats all difficult speed notes as circles, so this method can sometimes return a lower deviation than <see cref="calculateEffectiveDeviation"/>.
         /// This is fine though, since this method is only used to scale speed pp.
         /// </summary>
         private double calculateSpeedDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
@@ -316,16 +333,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty
         /// will always return the same deviation. Misses are ignored because they are usually due to misaiming.
         /// 300s and 100s are assumed to follow a normal distribution, whereas 50s are assumed to follow a uniform distribution.
         /// </summary>
-        private double calculateDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
+        private double calculateEffectiveDeviation(ScoreInfo score, OsuDifficultyAttributes attributes)
         {
             if (totalSuccessfulHits == 0)
                 return double.PositiveInfinity;
-
-            double clockRate = getClockRate(score);
-
-            double hitWindow300 = 80 - 6 * attributes.OverallDifficulty;
-            double hitWindow100 = (140 - 8 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
-            double hitWindow50 = (200 - 10 * ((80 - hitWindow300 * clockRate) / 6)) / clockRate;
 
             int circleCount = attributes.HitCircleCount;
             int missCountCircles = Math.Min(countMiss, circleCount);
@@ -333,50 +344,41 @@ namespace osu.Game.Rulesets.Osu.Difficulty
             int okCountCircles = Math.Min(countOk, circleCount - missCountCircles - mehCountCircles);
             int greatCountCircles = Math.Max(0, circleCount - missCountCircles - mehCountCircles - okCountCircles);
 
-            // Assume 100s, 50s, and misses happen on circles. If there are less non-300s on circles than 300s,
-            // compute the deviation on circles.
-            if (greatCountCircles > 0)
-            {
-                double n = circleCount - missCountCircles - mehCountCircles;
-                const double z = 2.32634787404; // 99% critical value for the normal distribution (one-tailed).
-
-                // Proportion of greats hit on circles, ignoring misses and 50s.
-                double p = greatCountCircles / n;
-
-                // We can be 99% confident that p is at least this value.
-                double pLowerBound = (n * p + z * z / 2) / (n + z * z) - z / (n + z * z) * Math.Sqrt(n * p * (1 - p) + z * z / 4);
-
-                // Compute the deviation assuming 300s and 100s are normally distributed, and 50s are uniformly distributed.
-                // Begin with 300s and 100s first. Ignoring 50s, we can be 99% confident that the deviation is not higher than:
-                double deviationOnCircles = hitWindow300 / (Math.Sqrt(2) * SpecialFunctions.ErfInv(pLowerBound));
-
-                // Then compute the variance for 50s.
-                double mehVariance = (hitWindow50 * hitWindow50 + hitWindow100 * hitWindow50 + hitWindow100 * hitWindow100) / 3;
-
-                // Find the total deviation.
-                deviationOnCircles = Math.Sqrt(((greatCountCircles + okCountCircles) * Math.Pow(deviationOnCircles, 2) + mehCountCircles * mehVariance) / (greatCountCircles + okCountCircles + mehCountCircles));
-
-                return deviationOnCircles;
-            }
-
-            // If there are more non-300s than there are circles, compute the deviation on sliders instead.
-            // Here, all that matters is whether or not the slider was missed, since it is impossible
-            // to get a 100 or 50 on a slider by mis-tapping it.
-            int sliderCount = attributes.SliderCount;
-            int missCountSliders = Math.Min(sliderCount, countMiss - missCountCircles);
-            int greatCountSliders = sliderCount - missCountSliders;
-
-            // We only get here if nothing was hit. In this case, there is no estimate for deviation.
-            // Note that this is never negative, so checking if this is only equal to 0 makes sense.
-            if (greatCountSliders == 0)
+            if (greatCountCircles == 0)
             {
                 return double.PositiveInfinity;
             }
 
-            double greatProbabilitySlider = greatCountSliders / (sliderCount + 1.0);
-            double deviationOnSliders = hitWindow50 / (Math.Sqrt(2) * SpecialFunctions.ErfInv(greatProbabilitySlider));
+            double n = circleCount - missCountCircles - mehCountCircles;
 
-            return deviationOnSliders;
+            // We can be 99% confident that p is at least this value.
+            double pLowerBound(double i) => Beta.InvCDF(i, 1 + n - i, 0.01);
+
+            // If all rhythm difficulties were the same, this is the would-be deviation divided by the would-be SS deviation.
+            // Always greater than or equal to 1.
+            double ratio = SpecialFunctions.ErfInv(pLowerBound(n)) / SpecialFunctions.ErfInv(pLowerBound(greatCountCircles));
+
+            return attributes.EffectiveSSDeviation * ratio;
+        }
+
+        // Calculates multiplier for speed accounting for rake based on the deviation and speed difficulty
+        // https://www.desmos.com/calculator/puc1mzdtfv
+        private double calculateSpeedRakeNerf(OsuDifficultyAttributes attributes)
+        {
+            // Base speed value
+            double speedValue = OsuStrainSkill.DifficultyToPerformance(attributes.SpeedDifficulty);
+
+            // Starting from this pp amount - penalty will be applied
+            double abusePoint = 100 + 260 * Math.Pow(22 / speedDeviation, 5.8);
+
+            if (speedValue <= abusePoint)
+                return 1.0;
+
+            // Use log curve to make additional rise in difficulty unimpactful. Rescale values to make curve have correct steepness
+            const double scale = 50;
+            double adjustedSpeedValue = scale * (Math.Log((speedValue - abusePoint) / scale + 1) + abusePoint / scale);
+
+            return adjustedSpeedValue / speedValue;
         }
 
         private static double getClockRate(ScoreInfo score)

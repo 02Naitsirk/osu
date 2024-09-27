@@ -59,7 +59,9 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Skills
             if (maxStrain == 0)
                 return 0;
 
-            return objectStrains.Sum(strain => strain / maxStrain);
+            static double weight(double x) => 1 / (1 + Math.Pow(1 / x - 1, 4));
+
+            return objectStrains.Sum(strain => weight(strain / maxStrain));
         }
     }
 }
